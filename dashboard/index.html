@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Workspace Security Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0a0e27;
+            color: #ffffff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .dashboard-container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #1a1f3a;
+            border-radius: 8px;
+            padding: 24px;
+            border: 1px solid #2a2f4a;
+        }
+
+        .stat-card.highlight {
+            border-color: #ff6b35;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #a0a0a0;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .stat-card.highlight .stat-value {
+            color: #ff6b35;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel {
+            background: #1a1f3a;
+            border-radius: 8px;
+            padding: 24px;
+            border: 1px solid #2a2f4a;
+        }
+
+        .panel-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #ffffff;
+        }
+
+        .map-container {
+            height: 300px;
+            background: #0f1429;
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .map-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .travel-line {
+            stroke: #ffffff;
+            stroke-width: 2;
+            fill: none;
+            opacity: 0.8;
+        }
+
+        .travel-point {
+            fill: #ff6b35;
+            stroke: #ffffff;
+            stroke-width: 2;
+            r: 6;
+        }
+
+        .travel-label {
+            fill: #ffffff;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table th {
+            text-align: left;
+            padding: 12px;
+            font-size: 12px;
+            color: #a0a0a0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #2a2f4a;
+        }
+
+        table td {
+            padding: 12px;
+            font-size: 14px;
+            color: #ffffff;
+            border-bottom: 1px solid #2a2f4a;
+        }
+
+        table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .chart-container {
+            height: 250px;
+            position: relative;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #a0a0a0;
+        }
+
+        .error {
+            color: #ff6b35;
+            padding: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="header">
+            <h1>Google Workspace Security Dashboard</h1>
+        </div>
+
+        <!-- Top Stats -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Login Attempts</div>
+                <div class="stat-value" id="stat-login-attempts">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Impossible Travel Alerts</div>
+                <div class="stat-value" id="stat-impossible-travel">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Security Alerts</div>
+                <div class="stat-value" id="stat-security-alerts">-</div>
+            </div>
+            <div class="stat-card highlight">
+                <div class="stat-label">Phishing Alerts</div>
+                <div class="stat-value" id="stat-phishing-alerts">-</div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Left Column -->
+            <div>
+                <!-- Impossible Travel Map -->
+                <div class="panel">
+                    <div class="panel-title">Impossible Travel Alerts</div>
+                    <div class="map-container" id="travel-map">
+                        <svg class="map-svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet">
+                            <!-- USA Map Outline (simplified) -->
+                            <path d="M 100 200 L 300 180 L 500 200 L 700 220 L 900 200 L 950 300 L 900 400 L 700 380 L 500 400 L 300 420 L 100 400 Z" 
+                                  fill="#1a2a4a" stroke="#2a3a5a" stroke-width="2"/>
+                            <g id="travel-markers"></g>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Login Attempts Table -->
+                <div class="panel" style="margin-top: 20px;">
+                    <div class="panel-title">Login Attempts</div>
+                    <table id="login-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>User</th>
+                                <th>IP Address</th>
+                            </tr>
+                        </thead>
+                        <tbody id="login-tbody">
+                            <tr><td colspan="3" class="loading">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div>
+                <!-- Security Alerts by Type -->
+                <div class="panel">
+                    <div class="panel-title">Security Alerts by Type</div>
+                    <div class="chart-container">
+                        <canvas id="security-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Phishing Alerts by Recipient -->
+                <div class="panel" style="margin-top: 20px;">
+                    <div class="panel-title">Phishing Alerts by Recipient</div>
+                    <div class="chart-container">
+                        <canvas id="phishing-recipient-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Phishing Alerts Table -->
+                <div class="panel" style="margin-top: 20px;">
+                    <div class="panel-title">Phishing Alerts</div>
+                    <table id="phishing-table">
+                        <thead>
+                            <tr>
+                                <th>Recipient</th>
+                                <th>Sender</th>
+                            </tr>
+                        </thead>
+                        <tbody id="phishing-tbody">
+                            <tr><td colspan="2" class="loading">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        // Charts
+        let securityChart = null;
+        let phishingRecipientChart = null;
+
+        // Load dashboard data
+        async function loadDashboard() {
+            try {
+                const response = await fetch(`${API_BASE}/api/dashboard`);
+                const data = await response.json();
+
+                // Update stats
+                document.getElementById('stat-login-attempts').textContent = data.stats?.login_attempts || 0;
+                document.getElementById('stat-impossible-travel').textContent = data.stats?.impossible_travel || 0;
+                document.getElementById('stat-security-alerts').textContent = data.stats?.security_alerts || 0;
+                document.getElementById('stat-phishing-alerts').textContent = data.stats?.phishing_alerts || 0;
+
+                // Update impossible travel map
+                updateTravelMap(data.impossible_travel || []);
+
+                // Update login attempts table
+                updateLoginTable(data.recent_logins || []);
+
+                // Update security alerts chart
+                updateSecurityChart(data.security_alerts_by_type || {});
+
+                // Update phishing recipient chart
+                updatePhishingRecipientChart(data.phishing_by_recipient || {});
+
+                // Update phishing alerts table
+                updatePhishingTable(data.phishing_alerts || []);
+
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+                document.querySelectorAll('.loading').forEach(el => {
+                    el.textContent = 'Error loading data';
+                    el.className = 'error';
+                });
+            }
+        }
+
+        function updateTravelMap(travelAlerts) {
+            const svg = document.querySelector('#travel-markers');
+            svg.innerHTML = '';
+
+            if (travelAlerts.length === 0) {
+                svg.innerHTML = '<text x="500" y="300" text-anchor="middle" fill="#a0a0a0">No impossible travel alerts</text>';
+                return;
+            }
+
+            // Simple USA coordinate mapping (approximate)
+            // This is a simplified version - you'd want to use a proper map library like Leaflet or Google Maps
+            travelAlerts.forEach((alert, index) => {
+                // Convert lat/lon to SVG coordinates (simplified)
+                const x1 = (alert.from.lon + 130) * 5;
+                const y1 = (50 - alert.from.lat) * 8;
+                const x2 = (alert.to.lon + 130) * 5;
+                const y2 = (50 - alert.to.lat) * 8;
+
+                // Draw line
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', x1);
+                line.setAttribute('y1', y1);
+                line.setAttribute('x2', x2);
+                line.setAttribute('y2', y2);
+                line.setAttribute('class', 'travel-line');
+                svg.appendChild(line);
+
+                // Draw points
+                [alert.from, alert.to].forEach((point, i) => {
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', i === 0 ? x1 : x2);
+                    circle.setAttribute('cy', i === 0 ? y1 : y2);
+                    circle.setAttribute('class', 'travel-point');
+                    svg.appendChild(circle);
+
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', i === 0 ? x1 : x2);
+                    text.setAttribute('y', (i === 0 ? y1 : y2) - 10);
+                    text.setAttribute('class', 'travel-label');
+                    text.setAttribute('text-anchor', 'middle');
+                    text.textContent = point.city || 'Unknown';
+                    svg.appendChild(text);
+                });
+            });
+        }
+
+        function updateLoginTable(logins) {
+            const tbody = document.getElementById('login-tbody');
+            if (logins.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="loading">No login attempts</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = logins.map(login => `
+                <tr>
+                    <td>${login.time}</td>
+                    <td>${login.user}</td>
+                    <td>${login.ip}</td>
+                </tr>
+            `).join('');
+        }
+
+        function updateSecurityChart(data) {
+            const ctx = document.getElementById('security-chart').getContext('2d');
+            
+            if (securityChart) {
+                securityChart.destroy();
+            }
+
+            const labels = Object.keys(data);
+            const values = Object.values(data);
+
+            securityChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels.length > 0 ? labels : ['New Device', 'Suspicious Login'],
+                    datasets: [{
+                        label: 'Alerts',
+                        data: labels.length > 0 ? values : [0, 0],
+                        backgroundColor: '#ff6b35',
+                        borderColor: '#ff6b35',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#a0a0a0',
+                                stepSize: 1
+                            },
+                            grid: {
+                                color: '#2a2f4a'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#a0a0a0'
+                            },
+                            grid: {
+                                color: '#2a2f4a'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updatePhishingRecipientChart(data) {
+            const ctx = document.getElementById('phishing-recipient-chart').getContext('2d');
+            
+            if (phishingRecipientChart) {
+                phishingRecipientChart.destroy();
+            }
+
+            const labels = Object.keys(data);
+            const values = Object.values(data);
+
+            phishingRecipientChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels.length > 0 ? labels : [],
+                    datasets: [{
+                        label: 'Alerts',
+                        data: values,
+                        backgroundColor: '#ff6b35',
+                        borderColor: '#ff6b35',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#a0a0a0',
+                                stepSize: 1
+                            },
+                            grid: {
+                                color: '#2a2f4a'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: '#a0a0a0'
+                            },
+                            grid: {
+                                color: '#2a2f4a'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updatePhishingTable(alerts) {
+            const tbody = document.getElementById('phishing-tbody');
+            if (alerts.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="2" class="loading">No phishing alerts</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = alerts.map(alert => `
+                <tr>
+                    <td>${alert.recipient}</td>
+                    <td>${alert.sender}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Load dashboard on page load
+        loadDashboard();
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadDashboard, 30000);
+    </script>
+</body>
+</html>
+

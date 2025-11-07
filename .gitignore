@@ -43,3 +43,6 @@ config.json
 # Archives
 archives/
 *.sql
+
+# Dashboard
+dashboard/__pycache__/

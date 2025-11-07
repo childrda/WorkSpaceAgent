@@ -211,6 +211,35 @@ See `schema.sql` for the complete database schema.
 - Impersonation attempts (superintendent, principal, etc.)
 - External users with suspicious sharing patterns
 
+## Dashboard
+
+The agent includes a web-based security dashboard for visualizing alerts and login activity.
+
+### Running the Dashboard
+
+1. **Install dashboard dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Start the dashboard server:**
+   ```bash
+   python dashboard_api.py
+   ```
+
+3. **Access the dashboard:**
+   Open your browser and navigate to: `http://localhost:5000`
+
+The dashboard displays:
+- **Top Metrics**: Login attempts, impossible travel alerts, security alerts, and phishing alerts
+- **Impossible Travel Map**: Visual representation of impossible travel alerts with location markers
+- **Login Attempts Table**: Recent login activity
+- **Security Alerts by Type**: Bar chart showing alert breakdown
+- **Phishing Alerts by Recipient**: Horizontal bar chart of phishing targets
+- **Phishing Alerts Table**: Recent phishing attempts
+
+The dashboard auto-refreshes every 30 seconds to show the latest data.
+
 ## File Structure
 
 ```
@@ -222,6 +251,9 @@ WorkSpaceAgent/
 ├── db_helpers.py           # Database operations
 ├── geo_utils.py            # IP geolocation utilities
 ├── prune_logs.py          # Log retention and archiving script
+├── dashboard_api.py        # Dashboard API server
+├── dashboard/              # Dashboard frontend
+│   └── index.html         # Dashboard HTML/CSS/JS
 ├── config.json             # Application configuration
 ├── schema.sql              # Database schema
 ├── requirements.txt        # Python dependencies
