@@ -48,21 +48,35 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
         is_new_device = alert_info.get('is_new_device', False)
         
         if is_new_device:
-            # Check if current location is in VA state
+            # Check if state checking is enabled and if current location is in allowed states
+            state_check_enabled = CONFIG.get('security', {}).get('state_check_enabled', True)
+            allowed_states = CONFIG.get('security', {}).get('allowed_states', ['VA', 'Virginia'])
+            
             current_state = geo.get('region', '')
-            is_in_va = 'virginia' in current_state.lower() or 'va' in current_state.lower()
+            is_in_allowed_state = False
+            if state_check_enabled and allowed_states:
+                is_in_allowed_state = any(
+                    state.lower() in current_state.lower() 
+                    for state in allowed_states
+                )
             
             # Get last login location from database
             last_login = get_last_login_location(actor)
             
             if last_login:
                 last_state = last_login.get('region', '')
-                last_is_in_va = 'virginia' in last_state.lower() or 'va' in last_state.lower()
+                last_is_in_allowed_state = False
+                if state_check_enabled and allowed_states:
+                    last_is_in_allowed_state = any(
+                        state.lower() in last_state.lower() 
+                        for state in allowed_states
+                    )
                 
-                # Alert if current login is not in VA
-                if not is_in_va:
+                # Alert if current login is not in allowed state
+                if state_check_enabled and not is_in_allowed_state:
+                    state_list = ', '.join(allowed_states)
                     msg = (
-                        f"Security Alert: New Device Login Outside VA\n\n"
+                        f"Security Alert: New Device Login Outside Allowed States ({state_list})\n\n"
                         f"User: {actor}\n"
                         f"Alert: {alert_info.get('title', 'New Device')}\n"
                         f"Current Location: {geo.get('city', 'Unknown')}, {current_state}, {geo.get('country', 'Unknown')}\n"
@@ -70,11 +84,11 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
                         f"Last Login Location: {last_login.get('city', 'Unknown')}, {last_state}, {last_login.get('country', 'Unknown')}\n"
                         f"Login Time: {timestamp}\n"
                     )
-                    subject = f"{CONFIG['alerts']['alert_subject_prefix']} New Device Login Outside VA: {actor}"
+                    subject = f"{CONFIG['alerts']['alert_subject_prefix']} New Device Login Outside Allowed States: {actor}"
                     send_email_alert(subject, msg)
-                    insert_security_alert(actor, "new_device_outside_va", msg)
+                    insert_security_alert(actor, "new_device_outside_allowed_state", msg)
                 else:
-                    # Still log the new device login even if in VA
+                    # Still log the new device login even if in allowed state
                     msg = (
                         f"Security Alert: New Device Login Detected\n\n"
                         f"User: {actor}\n"
@@ -85,28 +99,31 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
                     )
                     insert_security_alert(actor, "new_device_login", msg)
             else:
-                # No previous login found, but still alert if not in VA
-                if not is_in_va:
+                # No previous login found, but still alert if not in allowed state
+                if state_check_enabled and not is_in_allowed_state:
+                    state_list = ', '.join(allowed_states)
                     msg = (
-                        f"Security Alert: New Device Login Outside VA (No Previous Login Found)\n\n"
+                        f"Security Alert: New Device Login Outside Allowed States ({state_list}) (No Previous Login Found)\n\n"
                         f"User: {actor}\n"
                         f"Alert: {alert_info.get('title', 'New Device')}\n"
                         f"Current Location: {geo.get('city', 'Unknown')}, {current_state}, {geo.get('country', 'Unknown')}\n"
                         f"IP: {ip}\n"
                         f"Login Time: {timestamp}\n"
                     )
-                    subject = f"{CONFIG['alerts']['alert_subject_prefix']} New Device Login Outside VA: {actor}"
+                    subject = f"{CONFIG['alerts']['alert_subject_prefix']} New Device Login Outside Allowed States: {actor}"
                     send_email_alert(subject, msg)
-                    insert_security_alert(actor, "new_device_outside_va", msg)
+                    insert_security_alert(actor, "new_device_outside_allowed_state", msg)
 
     # Impossible Travel Detection
+    impossible_travel_threshold = CONFIG.get('security', {}).get('impossible_travel_threshold_mph', 500)
+    
     if actor in last_login_cache:
         last = last_login_cache[actor]
         if geo.get('latitude') and last.get('lat'):
             dist = distance_miles(last['lat'], last['lon'], geo['latitude'], geo['longitude'])
             delta = (timestamp - last['time']).total_seconds() / 3600  # hours
 
-            if delta > 0 and dist / delta > 500:  # 500 mph threshold
+            if delta > 0 and dist / delta > impossible_travel_threshold:
                 msg = (
                     f"User: {actor}\n"
                     f"Distance: {dist:.1f} miles in {delta:.1f} hours\n"
@@ -133,7 +150,7 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
                 last_time = datetime.strptime(last_time, '%Y-%m-%d %H:%M:%S')
             delta = (timestamp - last_time).total_seconds() / 3600  # hours
 
-            if delta > 0 and dist / delta > 500:  # 500 mph threshold
+            if delta > 0 and dist / delta > impossible_travel_threshold:
                 msg = (
                     f"User: {actor}\n"
                     f"Distance: {dist:.1f} miles in {delta:.1f} hours\n"

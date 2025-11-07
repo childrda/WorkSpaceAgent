@@ -12,6 +12,34 @@
     "enable_email": true,
     "alert_subject_prefix": "[SECURITY ALERT]"
   },
+  "security": {
+    "impossible_travel_threshold_mph": 500,
+    "allowed_states": ["VA", "Virginia"],
+    "state_check_enabled": true
+  },
+  "phishing": {
+    "impersonation_keywords": ["superintendent", "principal", "superintendant", "prinicipal"],
+    "leadership_keywords": ["finance", "hr", "human resources", "chief", "director", "executive"],
+    "suspicious_extensions": [".exe", ".scr", ".bat", ".zip", ".js", ".vbs", ".cmd"],
+    "public_sharing_indicators": [
+      "anyoneWithLink",
+      "anyone_with_link",
+      "anyone",
+      "public",
+      "anyoneWithTheLink",
+      "anyone_with_the_link"
+    ]
+  },
+  "dashboard": {
+    "stats_lookback_days": 7,
+    "refresh_interval_seconds": 30,
+    "query_limits": {
+      "impossible_travel": 10,
+      "recent_logins": 10,
+      "phishing_alerts": 10,
+      "login_pairs": 2
+    }
+  },
   "retention": {
     "retention_days": 180,
     "archive_path": "/opt/mcp_agent/archives",

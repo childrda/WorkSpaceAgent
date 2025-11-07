@@ -27,10 +27,10 @@ def process_drive_event(item, CONFIG):
 
     # Rule 1: Document shared with "anyone with the link" (especially from external)
     # Check various forms of public sharing
-    public_sharing_indicators = [
+    public_sharing_indicators = CONFIG.get('phishing', {}).get('public_sharing_indicators', [
         'anyoneWithLink', 'anyone_with_link', 'anyone', 'public', 
         'anyoneWithTheLink', 'anyone_with_the_link'
-    ]
+    ])
     is_public_share = any(indicator.lower() in str(visibility).lower() for indicator in public_sharing_indicators)
     is_external_owner = DOMAIN not in str(owner_domain).lower() if owner_domain else True
     
@@ -45,8 +45,12 @@ def process_drive_event(item, CONFIG):
     # Rule 2: Impersonation attempt - especially superintendent or principal
     display_lower = owner_display_name.lower() if owner_display_name else ''
     # Check for impersonation keywords, especially superintendent and principal
-    impersonation_keywords = ['superintendent', 'principal', 'superintendant', 'prinicipal']
-    leadership_keywords = ['finance', 'hr', 'human resources', 'chief', 'director', 'executive']
+    impersonation_keywords = CONFIG.get('phishing', {}).get('impersonation_keywords', [
+        'superintendent', 'principal', 'superintendant', 'prinicipal'
+    ])
+    leadership_keywords = CONFIG.get('phishing', {}).get('leadership_keywords', [
+        'finance', 'hr', 'human resources', 'chief', 'director', 'executive'
+    ])
     
     is_impersonation = False
     if display_lower:
@@ -69,7 +73,10 @@ def process_drive_event(item, CONFIG):
 
     # Rule 3: Suspicious file extension
     title_lower = title.lower() if title else ''
-    if any(ext in title_lower for ext in ['.exe', '.scr', '.bat', '.zip', '.js', '.vbs', '.cmd']):
+    suspicious_extensions = CONFIG.get('phishing', {}).get('suspicious_extensions', [
+        '.exe', '.scr', '.bat', '.zip', '.js', '.vbs', '.cmd'
+    ])
+    if any(ext in title_lower for ext in suspicious_extensions):
         if is_external_owner or is_public_share:
             is_phishing_risk = True
             reasons.append(f"Suspicious file extension: {title}")

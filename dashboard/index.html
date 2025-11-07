@@ -274,11 +274,19 @@
         let securityChart = null;
         let phishingRecipientChart = null;
 
+        // Dashboard refresh interval (will be set from API)
+        let refreshInterval = 30000; // Default 30 seconds
+
         // Load dashboard data
         async function loadDashboard() {
             try {
                 const response = await fetch(`${API_BASE}/api/dashboard`);
                 const data = await response.json();
+                
+                // Update refresh interval from config
+                if (data.refresh_interval) {
+                    refreshInterval = data.refresh_interval * 1000; // Convert to milliseconds
+                }
 
                 // Update stats
                 document.getElementById('stat-login-attempts').textContent = data.stats?.login_attempts || 0;
@@ -497,10 +505,10 @@
         }
 
         // Load dashboard on page load
-        loadDashboard();
-
-        // Auto-refresh every 30 seconds
-        setInterval(loadDashboard, 30000);
+        loadDashboard().then(() => {
+            // Auto-refresh based on config
+            setInterval(loadDashboard, refreshInterval);
+        });
     </script>
 </body>
 </html>

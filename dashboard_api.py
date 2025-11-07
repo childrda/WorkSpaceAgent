@@ -15,9 +15,17 @@ from dotenv import load_dotenv
 from db_helpers import get_db_connection
 from mysql.connector import Error
 
-# Load environment
+# Load environment and config
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, '.env'))
+
+# Load config once at startup
+try:
+    with open(os.path.join(BASE_DIR, 'config.json')) as f:
+        CONFIG = json.load(f)
+except FileNotFoundError:
+    CONFIG = {}
+    print("[!] Warning: config.json not found, using defaults")
 
 app = Flask(__name__, static_folder='dashboard')
 CORS(app)  # Enable CORS for frontend
@@ -25,6 +33,8 @@ CORS(app)  # Enable CORS for frontend
 
 def get_dashboard_stats():
     """Get overall dashboard statistics."""
+    lookback_days = CONFIG.get('dashboard', {}).get('stats_lookback_days', 7)
+    
     conn = get_db_connection()
     if not conn:
         return None
@@ -32,11 +42,11 @@ def get_dashboard_stats():
     try:
         cursor = conn.cursor(dictionary=True)
         
-        # Count login attempts (last 7 days)
-        week_ago = datetime.now() - timedelta(days=7)
+        # Count login attempts (configurable lookback period)
+        cutoff_date = datetime.now() - timedelta(days=lookback_days)
         cursor.execute(
             "SELECT COUNT(*) as count FROM user_logins WHERE login_time >= %s",
-            (week_ago,)
+            (cutoff_date,)
         )
         login_attempts = cursor.fetchone()['count']
         
@@ -46,17 +56,17 @@ def get_dashboard_stats():
         )
         impossible_travel = cursor.fetchone()['count']
         
-        # Count security alerts (last 7 days)
+        # Count security alerts (configurable lookback period)
         cursor.execute(
             "SELECT COUNT(*) as count FROM security_alerts WHERE created_at >= %s",
-            (week_ago,)
+            (cutoff_date,)
         )
         security_alerts = cursor.fetchone()['count']
         
-        # Count phishing alerts (last 7 days)
+        # Count phishing alerts (configurable lookback period)
         cursor.execute(
             "SELECT COUNT(*) as count FROM phishing_alerts WHERE created_at >= %s",
-            (week_ago,)
+            (cutoff_date,)
         )
         phishing_alerts = cursor.fetchone()['count']
         
@@ -76,6 +86,8 @@ def get_dashboard_stats():
 
 def get_impossible_travel_alerts():
     """Get impossible travel alerts with location data."""
+    limit = CONFIG.get('dashboard', {}).get('query_limits', {}).get('impossible_travel', 10)
+    
     conn = get_db_connection()
     if not conn:
         return []
@@ -88,7 +100,8 @@ def get_impossible_travel_alerts():
                FROM security_alerts
                WHERE alert_type = 'impossible_travel'
                ORDER BY created_at DESC
-               LIMIT 10"""
+               LIMIT %s""",
+            (limit,)
         )
         alerts = cursor.fetchall()
         
@@ -96,14 +109,16 @@ def get_impossible_travel_alerts():
         travel_alerts = []
         for alert in alerts:
             email = alert['email']
-            # Get last two logins for this user
+            # Get last N logins for this user (configurable)
+            login_pairs_limit = CONFIG.get('dashboard', {}).get('query_limits', {}).get('login_pairs', 2)
+            
             cursor.execute(
                 """SELECT latitude, longitude, city, region, login_time
                    FROM user_logins
                    WHERE email = %s AND latitude IS NOT NULL AND longitude IS NOT NULL
                    ORDER BY login_time DESC
-                   LIMIT 2""",
-                (email,)
+                   LIMIT %s""",
+                (email, login_pairs_limit)
             )
             logins = cursor.fetchall()
             
@@ -131,8 +146,11 @@ def get_impossible_travel_alerts():
         return []
 
 
-def get_recent_logins(limit=10):
+def get_recent_logins(limit=None):
     """Get recent login attempts."""
+    if limit is None:
+        limit = CONFIG.get('dashboard', {}).get('query_limits', {}).get('recent_logins', 10)
+    
     conn = get_db_connection()
     if not conn:
         return []
@@ -198,6 +216,8 @@ def get_security_alerts_by_type():
 
 def get_phishing_alerts_by_recipient():
     """Get count of phishing alerts by recipient."""
+    limit = CONFIG.get('dashboard', {}).get('query_limits', {}).get('phishing_alerts', 10)
+    
     conn = get_db_connection()
     if not conn:
         return {}
@@ -209,7 +229,8 @@ def get_phishing_alerts_by_recipient():
                FROM phishing_alerts
                GROUP BY email
                ORDER BY count DESC
-               LIMIT 10"""
+               LIMIT %s""",
+            (limit,)
         )
         results = cursor.fetchall()
         cursor.close()
@@ -221,8 +242,11 @@ def get_phishing_alerts_by_recipient():
         return {}
 
 
-def get_phishing_alerts(limit=10):
+def get_phishing_alerts(limit=None):
     """Get recent phishing alerts."""
+    if limit is None:
+        limit = CONFIG.get('dashboard', {}).get('query_limits', {}).get('phishing_alerts', 10)
+    
     conn = get_db_connection()
     if not conn:
         return []
@@ -302,11 +326,17 @@ def api_dashboard():
     return jsonify({
         'stats': get_dashboard_stats(),
         'impossible_travel': get_impossible_travel_alerts(),
-        'recent_logins': get_recent_logins(10),
+        'recent_logins': get_recent_logins(),
         'security_alerts_by_type': get_security_alerts_by_type(),
         'phishing_by_recipient': get_phishing_alerts_by_recipient(),
-        'phishing_alerts': get_phishing_alerts(10)
+        'phishing_alerts': get_phishing_alerts(),
+        'refresh_interval': get_refresh_interval()
     })
+
+
+def get_refresh_interval():
+    """Get dashboard refresh interval from config."""
+    return CONFIG.get('dashboard', {}).get('refresh_interval_seconds', 30)
 
 
 @app.route('/')
@@ -322,7 +352,11 @@ def serve_static(path):
 
 
 if __name__ == '__main__':
-    print("[+] Starting Dashboard API server on http://localhost:5000")
-    print("[+] Dashboard available at http://localhost:5000")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Get port from environment variable or config, default to 5000
+    port = int(os.getenv('DASHBOARD_PORT', 5000))
+    host = os.getenv('DASHBOARD_HOST', '0.0.0.0')
+    
+    print(f"[+] Starting Dashboard API server on http://{host}:{port}")
+    print(f"[+] Dashboard available at http://localhost:{port}")
+    app.run(host=host, port=port, debug=True)
 
