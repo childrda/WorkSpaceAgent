@@ -160,28 +160,38 @@ sudo dnf install -y git
    **Option C: Use any custom location**
    - Update all file paths in `config.json` and `.env` to match your location
 
-3. **Install Python dependencies**
-   ```bash
-   # Install required Python packages
-   pip3 install -r requirements.txt
+3. **Create and activate virtual environment** (recommended)
    
-   # Or if pip3 is not found, try:
-   python3 -m pip install -r requirements.txt
-   ```
-   
-   **Optional: Use a virtual environment (recommended)**
+   Navigate to your installation directory (e.g., `/opt/mcp_agent`):
    ```bash
+   cd /opt/mcp_agent
+   
    # Create virtual environment
    python3 -m venv venv
    
    # Activate virtual environment
    source venv/bin/activate
    
-   # Install dependencies
-   pip install -r requirements.txt
+   # Upgrade pip
+   pip install --upgrade pip
    ```
 
-4. **Set up database schema**
+4. **Install Python dependencies**
+   
+   With the virtual environment activated:
+   ```bash
+   # Install all required packages (agent and dashboard share the same requirements)
+   pip install -r requirements.txt
+   ```
+   
+   **Note:** If you prefer not to use a virtual environment, you can install directly:
+   ```bash
+   pip3 install -r requirements.txt
+   # Or if pip3 is not found:
+   python3 -m pip install -r requirements.txt
+   ```
+
+5. **Set up database schema**
    
    If you haven't already created the database (see Prerequisites Step 3), do that first, then:
    ```bash
@@ -193,12 +203,12 @@ sudo dnf install -y git
    mysql -u root -p mcp_logs < schema.sql
    ```
 
-5. **Download MaxMind GeoLite2 City database**
+6. **Download MaxMind GeoLite2 City database**
    - Sign up for a free account at [MaxMind](https://www.maxmind.com/en/geolite2/signup)
    - Download the GeoLite2-City.mmdb file
    - Place it in your desired location (default: `/opt/mcp_agent/GeoLite2-City.mmdb`)
 
-6. **Configure Google Workspace Service Account**
+7. **Configure Google Workspace Service Account**
    - Create a service account in Google Cloud Console
    - Enable the following APIs:
      - Admin SDK API
@@ -207,13 +217,13 @@ sudo dnf install -y git
    - Download the service account JSON key file
    - Place it in your installation directory (default: `/opt/mcp_agent/service_account.json`)
 
-7. **Set up environment variables**
+8. **Set up environment variables**
    ```bash
    cp example.env .env
    # Edit .env with your configuration
    ```
 
-8. **Configure application settings**
+9. **Configure application settings**
    ```bash
    cp config.json.example config.json
    # Edit config.json with your domain and settings
@@ -267,10 +277,17 @@ MYSQL_DB=mcp_logs
 
 ### Running the Agent
 
-Run the agent:
-
+**If using virtual environment:**
 ```bash
+cd /opt/mcp_agent
+source venv/bin/activate
 python workspace_agent.py
+```
+
+**If not using virtual environment:**
+```bash
+cd /opt/mcp_agent
+python3 workspace_agent.py
 ```
 
 The agent will:
@@ -279,6 +296,38 @@ The agent will:
 3. Process login events for impossible travel detection
 4. Process Drive events for phishing detection
 5. Send email alerts for security incidents
+
+**Running as a background service:**
+```bash
+# Using nohup (simple method)
+cd /opt/mcp_agent
+source venv/bin/activate
+nohup python workspace_agent.py > agent.log 2>&1 &
+
+# Or using systemd (recommended for production)
+# Create /etc/systemd/system/mcp-agent.service (see below)
+sudo systemctl start mcp-agent
+sudo systemctl enable mcp-agent
+```
+
+**Systemd service file example** (`/etc/systemd/system/mcp-agent.service`):
+```ini
+[Unit]
+Description=Google Workspace Security Monitoring Agent
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/opt/mcp_agent
+Environment="PATH=/opt/mcp_agent/venv/bin"
+ExecStart=/opt/mcp_agent/venv/bin/python /opt/mcp_agent/workspace_agent.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ### Log Retention and Archiving
 
@@ -302,6 +351,10 @@ The agent includes automatic log retention and archiving functionality. Configur
 **Linux (cron):**
 ```bash
 # Add to crontab (runs daily at 2 AM)
+# If using virtual environment:
+0 2 * * * cd /opt/mcp_agent && /opt/mcp_agent/venv/bin/python /opt/mcp_agent/prune_logs.py >> /var/log/mcp_agent_prune.log 2>&1
+
+# If not using virtual environment:
 0 2 * * * /usr/bin/python3 /opt/mcp_agent/prune_logs.py >> /var/log/mcp_agent_prune.log 2>&1
 ```
 
@@ -362,18 +415,55 @@ The agent includes a web-based security dashboard for visualizing alerts and log
 
 ### Running the Dashboard
 
-1. **Install dashboard dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+**If using virtual environment:**
+```bash
+cd /opt/mcp_agent
+source venv/bin/activate
+python dashboard_api.py
+```
 
-2. **Start the dashboard server:**
-   ```bash
-   python dashboard_api.py
-   ```
+**If not using virtual environment:**
+```bash
+cd /opt/mcp_agent
+python3 dashboard_api.py
+```
 
-3. **Access the dashboard:**
-   Open your browser and navigate to: `http://localhost:5000`
+**Access the dashboard:**
+Open your browser and navigate to: `http://localhost:5000` (or the port configured in your `.env` file)
+
+**Running as a background service:**
+```bash
+# Using nohup (simple method)
+cd /opt/mcp_agent
+source venv/bin/activate
+nohup python dashboard_api.py > dashboard.log 2>&1 &
+
+# Or using systemd (recommended for production)
+# Create /etc/systemd/system/mcp-dashboard.service (see below)
+sudo systemctl start mcp-dashboard
+sudo systemctl enable mcp-dashboard
+```
+
+**Systemd service file example** (`/etc/systemd/system/mcp-dashboard.service`):
+```ini
+[Unit]
+Description=Google Workspace Security Dashboard
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/opt/mcp_agent
+Environment="PATH=/opt/mcp_agent/venv/bin"
+ExecStart=/opt/mcp_agent/venv/bin/python /opt/mcp_agent/dashboard_api.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Note:** Both the agent and dashboard can share the same virtual environment. They run independently and can be started in separate terminal windows or as separate systemd services.
 
 The dashboard displays:
 - **Top Metrics**: Login attempts, impossible travel alerts, security alerts, and phishing alerts
