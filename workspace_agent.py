@@ -37,22 +37,41 @@ def main_loop():
         start_time = last.isoformat() + 'Z'
         now = datetime.utcnow()
         try:
+            print(f"[DEBUG] Querying events from {start_time} to {now.isoformat()}Z")
+            
             # Fetch Google security alerts
             sec_alerts = fetch_security_alerts(alerts_service, CONFIG)
+            print(f"[DEBUG] Security alerts found: {len(sec_alerts)}")
             # Create a dict mapping user email to alert info for easier lookup
             sec_alerts_dict = {a['user']: a for a in sec_alerts if a.get('user')}
 
             # Get login events
-            logins = reports_service.activities().list(
+            login_response = reports_service.activities().list(
                 userKey='all', applicationName='login', startTime=start_time
-            ).execute().get('items', [])
+            ).execute()
+            
+            # Debug: Print how many events were returned
+            logins = login_response.get('items', [])
+            print(f"[DEBUG] Login events: {len(logins)}")
+            if logins:
+                print(f"[DEBUG] First login event sample:")
+                print(json.dumps(logins[0], indent=2))
+            
             for item in logins:
                 process_login_event(item, sec_alerts_dict, CONFIG)
 
             # Get Drive events
-            drives = reports_service.activities().list(
+            drive_response = reports_service.activities().list(
                 userKey='all', applicationName='drive', startTime=start_time
-            ).execute().get('items', [])
+            ).execute()
+            
+            # Debug: Print how many events were returned
+            drives = drive_response.get('items', [])
+            print(f"[DEBUG] Drive events: {len(drives)}")
+            if drives:
+                print(f"[DEBUG] First drive event sample:")
+                print(json.dumps(drives[0], indent=2))
+            
             for item in drives:
                 process_drive_event(item, CONFIG)
 
