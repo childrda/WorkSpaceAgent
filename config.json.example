@@ -11,6 +11,11 @@
   "alerts": {
     "enable_email": true,
     "alert_subject_prefix": "[SECURITY ALERT]"
+  },
+  "retention": {
+    "retention_days": 180,
+    "archive_path": "/opt/mcp_agent/archives",
+    "enable_archiving": true
   }
 }
 

@@ -120,6 +120,8 @@ MYSQL_DB=mcp_logs
 
 ## Usage
 
+### Running the Agent
+
 Run the agent:
 
 ```bash
@@ -132,6 +134,50 @@ The agent will:
 3. Process login events for impossible travel detection
 4. Process Drive events for phishing detection
 5. Send email alerts for security incidents
+
+### Log Retention and Archiving
+
+The agent includes automatic log retention and archiving functionality. Configure retention settings in `config.json`:
+
+```json
+"retention": {
+  "retention_days": 180,
+  "archive_path": "/opt/mcp_agent/archives",
+  "enable_archiving": true
+}
+```
+
+**Pruning Process:**
+- Run `prune_logs.py` daily to remove logs older than the retention period
+- Before deletion, an SQL dump archive is created automatically
+- Archives are stored in the configured `archive_path` directory
+
+**Setting up Daily Pruning:**
+
+**Linux (cron):**
+```bash
+# Add to crontab (runs daily at 2 AM)
+0 2 * * * /usr/bin/python3 /opt/mcp_agent/prune_logs.py >> /var/log/mcp_agent_prune.log 2>&1
+```
+
+**Windows (Task Scheduler):**
+1. Open Task Scheduler
+2. Create Basic Task
+3. Set trigger to Daily at 2:00 AM
+4. Action: Start a program
+5. Program: `python`
+6. Arguments: `D:\WorkSpaceAgent\prune_logs.py`
+7. Start in: `D:\WorkSpaceAgent`
+
+**Manual Pruning:**
+```bash
+python prune_logs.py
+```
+
+The script will:
+- Create an SQL archive dump of data to be deleted
+- Remove logs older than the retention period
+- Report the number of records pruned from each table
 
 ## Google Workspace API Permissions
 
@@ -175,6 +221,7 @@ WorkSpaceAgent/
 ├── alert_utils.py          # Alert fetching and email sending
 ├── db_helpers.py           # Database operations
 ├── geo_utils.py            # IP geolocation utilities
+├── prune_logs.py          # Log retention and archiving script
 ├── config.json             # Application configuration
 ├── schema.sql              # Database schema
 ├── requirements.txt        # Python dependencies

@@ -39,3 +39,7 @@ Thumbs.db
 
 # Config (may contain sensitive data)
 config.json
+
+# Archives
+archives/
+*.sql
