@@ -35,40 +35,67 @@ A Python-based security monitoring agent that continuously monitors Google Works
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   # Clone to current directory (creates WorkSpaceAgent folder)
+   git clone https://github.com/childrda/WorkSpaceAgent.git
    cd WorkSpaceAgent
+   
+   # Or clone to a specific location
+   git clone https://github.com/childrda/WorkSpaceAgent.git /path/to/destination
+   cd /path/to/destination/WorkSpaceAgent
    ```
 
-2. **Install Python dependencies**
+2. **Choose installation location** (optional)
+   
+   The default configuration assumes files are in `/opt/mcp_agent/` (Linux production path). You can:
+   
+   **Option A: Move repository to `/opt/mcp_agent/` (recommended for Linux production)**
+   ```bash
+   sudo mkdir -p /opt/mcp_agent
+   sudo cp -r WorkSpaceAgent/* /opt/mcp_agent/
+   cd /opt/mcp_agent
+   ```
+   
+   **Option B: Keep repository in current location**
+   - Update paths in `config.json` and `.env` to match your chosen location
+   - Example: If keeping in `~/WorkSpaceAgent`, update:
+     - `geo_db_path` in `config.json`
+     - `archive_path` in `config.json`
+     - `SERVICE_ACCOUNT_FILE` in `.env`
+   
+   **Option C: Use any custom location**
+   - Update all file paths in `config.json` and `.env` to match your location
+
+3. **Install Python dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Set up MySQL database**
+4. **Set up MySQL database**
    ```bash
    mysql -u root -p < schema.sql
    ```
 
-4. **Download MaxMind GeoLite2 City database**
+5. **Download MaxMind GeoLite2 City database**
    - Sign up for a free account at [MaxMind](https://www.maxmind.com/en/geolite2/signup)
    - Download the GeoLite2-City.mmdb file
    - Place it in your desired location (default: `/opt/mcp_agent/GeoLite2-City.mmdb`)
 
-5. **Configure Google Workspace Service Account**
+6. **Configure Google Workspace Service Account**
    - Create a service account in Google Cloud Console
    - Enable the following APIs:
      - Admin SDK API
      - Alert Center API
    - Grant the service account domain-wide delegation
    - Download the service account JSON key file
+   - Place it in your installation directory (default: `/opt/mcp_agent/service_account.json`)
 
-6. **Set up environment variables**
+7. **Set up environment variables**
    ```bash
    cp example.env .env
    # Edit .env with your configuration
    ```
 
-7. **Configure application settings**
+8. **Configure application settings**
    ```bash
    cp config.json.example config.json
    # Edit config.json with your domain and settings
