@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Google Workspace Security Dashboard</title>
+    <link rel="icon" type="image/png" href="wa.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * {
@@ -138,6 +139,10 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
             border-bottom: 1px solid #2a2f4a;
+            position: sticky;
+            top: 0;
+            background: #1a1f3a;
+            z-index: 10;
         }
 
         table td {
@@ -149,6 +154,40 @@
 
         table tr:last-child td {
             border-bottom: none;
+        }
+
+        .table-container {
+            max-height: 400px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .table-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .table-container::-webkit-scrollbar-track {
+            background: #1a1f3a;
+            border-radius: 4px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb {
+            background: #2a2f4a;
+            border-radius: 4px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #3a3f5a;
+        }
+
+        .status-success {
+            color: #4ade80;
+            font-weight: 600;
+        }
+
+        .status-failure {
+            color: #f87171;
+            font-weight: 600;
         }
 
         .chart-container {
@@ -214,19 +253,22 @@
 
                 <!-- Login Attempts Table -->
                 <div class="panel" style="margin-top: 20px;">
-                    <div class="panel-title">Login Attempts</div>
-                    <table id="login-table">
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>User</th>
-                                <th>IP Address</th>
-                            </tr>
-                        </thead>
-                        <tbody id="login-tbody">
-                            <tr><td colspan="3" class="loading">Loading...</td></tr>
-                        </tbody>
-                    </table>
+                    <div class="panel-title">Login Attempts (Last 100)</div>
+                    <div class="table-container">
+                        <table id="login-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>IP Address</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="login-tbody">
+                                <tr><td colspan="4" class="loading">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -367,17 +409,22 @@
         function updateLoginTable(logins) {
             const tbody = document.getElementById('login-tbody');
             if (logins.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="loading">No login attempts</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" class="loading">No login attempts</td></tr>';
                 return;
             }
 
-            tbody.innerHTML = logins.map(login => `
+            tbody.innerHTML = logins.map(login => {
+                const statusClass = login.success ? 'status-success' : 'status-failure';
+                const statusText = login.success ? 'Success' : 'Failed';
+                return `
                 <tr>
                     <td>${login.time}</td>
                     <td>${login.user}</td>
                     <td>${login.ip}</td>
+                    <td><span class="${statusClass}">${statusText}</span></td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
         }
 
         function updateSecurityChart(data) {

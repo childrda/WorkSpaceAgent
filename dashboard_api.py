@@ -158,7 +158,7 @@ def get_recent_logins(limit=None):
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            """SELECT email, ip, login_time, city, region, country
+            """SELECT email, ip, login_time, city, region, country, login_success
                FROM user_logins
                ORDER BY login_time DESC
                LIMIT %s""",
@@ -169,10 +169,11 @@ def get_recent_logins(limit=None):
         conn.close()
         
         return [{
-            'time': login['login_time'].strftime('%Y-%m-%d') if isinstance(login['login_time'], datetime) else str(login['login_time']),
+            'time': login['login_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(login['login_time'], datetime) else str(login['login_time']),
             'user': login['email'],
             'ip': login['ip'] or 'N/A',
-            'location': f"{login['city'] or ''}, {login['region'] or ''}".strip(', ')
+            'location': f"{login['city'] or ''}, {login['region'] or ''}".strip(', '),
+            'success': bool(login.get('login_success', True))
         } for login in logins]
     except Error as e:
         print(f"[!] Error getting recent logins: {e}")
@@ -326,7 +327,7 @@ def api_dashboard():
     return jsonify({
         'stats': get_dashboard_stats(),
         'impossible_travel': get_impossible_travel_alerts(),
-        'recent_logins': get_recent_logins(),
+        'recent_logins': get_recent_logins(100),
         'security_alerts_by_type': get_security_alerts_by_type(),
         'phishing_by_recipient': get_phishing_alerts_by_recipient(),
         'phishing_alerts': get_phishing_alerts(),

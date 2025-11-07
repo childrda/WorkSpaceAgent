@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS user_logins (
   city VARCHAR(100),
   asn VARCHAR(50),
   login_time DATETIME,
+  login_success BOOLEAN DEFAULT TRUE,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_email (email),
   INDEX idx_login_time (login_time)

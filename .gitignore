@@ -43,6 +43,8 @@ config.json
 # Archives
 archives/
 *.sql
+!schema.sql
+!migration_add_login_success.sql
 
 # Dashboard
 dashboard/__pycache__/

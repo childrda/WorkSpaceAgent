@@ -11,16 +11,32 @@ def get_db_connection():
     Returns a connection object or None if failed.
     """
     try:
+        host = os.getenv('MYSQL_HOST', 'localhost')
+        port = int(os.getenv('MYSQL_PORT', 3306))
+        user = os.getenv('MYSQL_USER')
+        password = os.getenv('MYSQL_PASSWORD')
+        database = os.getenv('MYSQL_DB')
+        
+        if not all([host, user, password, database]):
+            print(f"[!] MySQL connection error: Missing required environment variables")
+            print(f"[!] Required: MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB")
+            return None
+        
         conn = mysql.connector.connect(
-            host=os.getenv('MYSQL_HOST', 'localhost'),
-            port=int(os.getenv('MYSQL_PORT', 3306)),
-            user=os.getenv('MYSQL_USER'),
-            password=os.getenv('MYSQL_PASSWORD'),
-            database=os.getenv('MYSQL_DB')
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database
         )
         return conn
     except Error as e:
         print(f"[!] MySQL connection error: {e}")
+        print(f"[!] Attempted to connect to: {os.getenv('MYSQL_HOST', 'localhost')}:{os.getenv('MYSQL_PORT', 3306)}")
+        print(f"[!] Database: {os.getenv('MYSQL_DB', 'NOT SET')}, User: {os.getenv('MYSQL_USER', 'NOT SET')}")
+        return None
+    except Exception as e:
+        print(f"[!] Unexpected database connection error: {type(e).__name__}: {e}")
         return None
 
 
@@ -47,28 +63,49 @@ def insert_security_alert(email, alert_type, details):
         return False
 
 
-def insert_user_login(email, ip, latitude, longitude, country, region, city, login_time):
+def insert_user_login(email, ip, latitude, longitude, country, region, city, login_time, login_success=True):
     """
     Store a user login event in the database for tracking location history.
     """
     conn = get_db_connection()
     if not conn:
+        print(f"[!] Database connection failed - cannot store login for {email}")
         return False
 
     try:
         cursor = conn.cursor()
         cursor.execute(
             """INSERT INTO user_logins 
-               (email, ip, latitude, longitude, country, region, city, login_time) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-            (email, ip, latitude, longitude, country, region, city, login_time)
+               (email, ip, latitude, longitude, country, region, city, login_time, login_success) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (email, ip, latitude, longitude, country, region, city, login_time, login_success)
         )
         conn.commit()
+        rows_affected = cursor.rowcount
         cursor.close()
         conn.close()
+        if rows_affected == 0:
+            print(f"[!] Insert returned 0 rows affected for {email}")
+            return False
         return True
     except Error as e:
-        print(f"[!] user_login insert error: {e}")
+        print(f"[!] user_login insert error for {email}: {e}")
+        print(f"[!] Attempted to insert: email={email}, ip={ip}, lat={latitude}, lon={longitude}, time={login_time}")
+        if conn:
+            try:
+                conn.rollback()
+                conn.close()
+            except:
+                pass
+        return False
+    except Exception as e:
+        print(f"[!] Unexpected error inserting login for {email}: {type(e).__name__}: {e}")
+        if conn:
+            try:
+                conn.rollback()
+                conn.close()
+            except:
+                pass
         return False
 
 

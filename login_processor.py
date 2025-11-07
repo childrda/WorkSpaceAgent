@@ -14,13 +14,31 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
     Detects impossible travel and correlates with security alerts.
     sec_alerts_dict: dict mapping user email to alert info (from fetch_security_alerts)
     """
-    params = {p['name']: p.get('value') for p in item.get('parameters', [])}
-    ip = params.get('ipAddress')
-    actor = item.get('actor', {}).get('email')
-    if not actor:
+    try:
+        params = {p['name']: p.get('value') for p in item.get('parameters', [])}
+        ip = params.get('ipAddress')
+        actor = item.get('actor', {}).get('email')
+        event_name = item.get('name', '')
+        
+        # Determine if login was successful based on event name
+        # Google Workspace typically uses: login_success, login_failure, etc.
+        login_success = True  # Default to success
+        if 'failure' in event_name.lower() or 'denied' in event_name.lower() or 'blocked' in event_name.lower():
+            login_success = False
+        
+        if not actor:
+            print(f"[!] Skipping login event - no actor email found. Event: {json.dumps(item, indent=2)[:200]}")
+            return
+        
+        try:
+            timestamp = datetime.strptime(item['id']['time'], '%Y-%m-%dT%H:%M:%S.%fZ')
+        except ValueError as e:
+            print(f"[!] Failed to parse timestamp for {actor}: {item.get('id', {}).get('time')} - {e}")
+            return
+    except Exception as e:
+        print(f"[!] Error parsing login event: {type(e).__name__}: {e}")
+        print(f"[!] Event data: {json.dumps(item, indent=2)[:500]}")
         return
-    
-    timestamp = datetime.strptime(item['id']['time'], '%Y-%m-%dT%H:%M:%S.%fZ')
 
     # Geolocate the IP
     geo = ip_to_geo(ip, CONFIG['geo_db_path'])
@@ -29,18 +47,22 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
     if geo.get('error') and geo['error'] not in ('private_ip', 'no_ip'):
         send_email_alert(f"Geo lookup failed for {actor}", json.dumps(geo, indent=2))
 
-    # Store login in database for historical tracking
-    if geo.get('latitude') and geo.get('longitude'):
-        insert_user_login(
-            actor,
-            ip,
-            geo.get('latitude'),
-            geo.get('longitude'),
-            geo.get('country'),
-            geo.get('region'),
-            geo.get('city'),
-            timestamp
-        )
+    # Store login in database for historical tracking (store all logins, even without geo data)
+    success = insert_user_login(
+        actor,
+        ip,
+        geo.get('latitude'),
+        geo.get('longitude'),
+        geo.get('country', 'Unknown'),
+        geo.get('region', 'Unknown'),
+        geo.get('city', 'Unknown'),
+        timestamp,
+        login_success
+    )
+    if not success:
+        print(f"[!] Failed to store login for {actor} at {timestamp}")
+    else:
+        print(f"[DEBUG] Stored login for {actor} - IP: {ip}, Location: {geo.get('city', 'Unknown')}, {geo.get('region', 'Unknown')}")
 
     # Cross-reference: Is this user in a "new device" security alert?
     if actor in sec_alerts_dict:

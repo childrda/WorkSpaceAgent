@@ -202,6 +202,8 @@ sudo dnf install -y git
    ```bash
    mysql -u root -p mcp_logs < schema.sql
    ```
+   
+   **For existing installations:** If you already have a database set up and need to update the schema (e.g., to add the `login_success` column), see `SCHEMA_UPDATE.md` for detailed migration instructions.
 
 6. **Download MaxMind GeoLite2 City database**
    - Sign up for a free account at [MaxMind](https://www.maxmind.com/en/geolite2/signup)

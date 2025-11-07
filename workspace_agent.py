@@ -58,7 +58,13 @@ def main_loop():
                 print(json.dumps(logins[0], indent=2))
             
             for item in logins:
-                process_login_event(item, sec_alerts_dict, CONFIG)
+                try:
+                    process_login_event(item, sec_alerts_dict, CONFIG)
+                except Exception as e:
+                    print(f"[!] Error processing login event: {type(e).__name__}: {e}")
+                    print(f"[!] Event: {json.dumps(item, indent=2)[:500]}")
+                    import traceback
+                    traceback.print_exc()
 
             # Get Drive events
             drive_response = reports_service.activities().list(
