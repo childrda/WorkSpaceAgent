@@ -1,0 +1,41 @@
+# Environment and secrets
+.env
+service_account.json
+*.json.key
+*.pem
+*.key
+
+# Database files
+GeoLite2-City.mmdb
+*.mmdb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (may contain sensitive data)
+config.json

@@ -1,0 +1,16 @@
+{
+  "poll_interval_minutes": 5,
+  "geo_db_path": "/opt/mcp_agent/GeoLite2-City.mmdb",
+  "domain": "yourdomain.com",
+  "log_level": "INFO",
+  "google": {
+    "admin_email": "admin@yourdomain.com",
+    "use_alert_center": true,
+    "max_alerts": 50
+  },
+  "alerts": {
+    "enable_email": true,
+    "alert_subject_prefix": "[SECURITY ALERT]"
+  }
+}
+
