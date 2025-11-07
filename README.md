@@ -25,11 +25,106 @@ A Python-based security monitoring agent that continuously monitors Google Works
 
 ## Requirements
 
+- Linux operating system (Ubuntu, Debian, CentOS, RHEL, etc.)
 - Python 3.7+
 - MySQL 5.7+ or MariaDB 10.3+
 - Google Workspace Admin API access
 - MaxMind GeoLite2 City database
 - Google Service Account with appropriate permissions
+
+## Prerequisites
+
+Before installing the agent, you need to set up your Linux system with the required software.
+
+### Step 1: Update Your Linux System
+
+**For Ubuntu/Debian:**
+```bash
+sudo apt update
+sudo apt upgrade -y
+```
+
+**For CentOS/RHEL/Rocky Linux:**
+```bash
+sudo yum update -y
+# Or for newer versions:
+sudo dnf update -y
+```
+
+### Step 2: Install Python 3 and pip
+
+**For Ubuntu/Debian:**
+```bash
+sudo apt install -y python3 python3-pip python3-venv
+# Verify installation
+python3 --version
+pip3 --version
+```
+
+**For CentOS/RHEL/Rocky Linux:**
+```bash
+sudo yum install -y python3 python3-pip
+# Or for newer versions:
+sudo dnf install -y python3 python3-pip
+# Verify installation
+python3 --version
+pip3 --version
+```
+
+### Step 3: Install MySQL
+
+**For Ubuntu/Debian:**
+```bash
+sudo apt install -y mysql-server
+# Start MySQL service
+sudo systemctl start mysql
+sudo systemctl enable mysql
+# Secure MySQL installation (follow prompts)
+sudo mysql_secure_installation
+```
+
+**For CentOS/RHEL/Rocky Linux:**
+```bash
+sudo yum install -y mysql-server
+# Or for newer versions:
+sudo dnf install -y mysql-server
+# Start MySQL service
+sudo systemctl start mysqld
+sudo systemctl enable mysqld
+# Get temporary root password (if first install)
+sudo grep 'temporary password' /var/log/mysqld.log
+# Secure MySQL installation
+sudo mysql_secure_installation
+```
+
+**Create Database and User:**
+```bash
+# Log into MySQL as root
+sudo mysql -u root -p
+
+# In MySQL prompt, run:
+CREATE DATABASE mcp_logs;
+CREATE USER 'mcp_agent'@'localhost' IDENTIFIED BY 'YourStrongMySQLPassword';
+GRANT ALL PRIVILEGES ON mcp_logs.* TO 'mcp_agent'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+**Note:** Replace `YourStrongMySQLPassword` with a strong password of your choice. You'll need this password for the `.env` file later.
+
+### Step 4: Install Git (if not already installed)
+
+**For Ubuntu/Debian:**
+```bash
+sudo apt install -y git
+```
+
+**For CentOS/RHEL/Rocky Linux:**
+```bash
+sudo yum install -y git
+# Or for newer versions:
+sudo dnf install -y git
+```
 
 ## Installation
 
@@ -67,12 +162,35 @@ A Python-based security monitoring agent that continuously monitors Google Works
 
 3. **Install Python dependencies**
    ```bash
+   # Install required Python packages
+   pip3 install -r requirements.txt
+   
+   # Or if pip3 is not found, try:
+   python3 -m pip install -r requirements.txt
+   ```
+   
+   **Optional: Use a virtual environment (recommended)**
+   ```bash
+   # Create virtual environment
+   python3 -m venv venv
+   
+   # Activate virtual environment
+   source venv/bin/activate
+   
+   # Install dependencies
    pip install -r requirements.txt
    ```
 
-4. **Set up MySQL database**
+4. **Set up database schema**
+   
+   If you haven't already created the database (see Prerequisites Step 3), do that first, then:
    ```bash
-   mysql -u root -p < schema.sql
+   mysql -u mcp_agent -p mcp_logs < schema.sql
+   ```
+   
+   **Note:** Use the password you created for the `mcp_agent` MySQL user. If you used root instead, use:
+   ```bash
+   mysql -u root -p mcp_logs < schema.sql
    ```
 
 5. **Download MaxMind GeoLite2 City database**
