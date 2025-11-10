@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+import base64
+import json
+import re
+from datetime import datetime, timezone
+from email.utils import parseaddr
+from html import unescape
+from typing import List, Tuple
+from urllib.parse import urlparse
+
+from alert_utils import send_email_alert
+from db_helpers import insert_phishing_email
+
+URL_REGEX = re.compile(r"https?://[^\s<>\"]+")
+
+
+def _decode_part(part):
+    data = part.get('body', {}).get('data')
+    if not data:
+        return ''
+    try:
+        return base64.urlsafe_b64decode(data.encode('utf-8')).decode('utf-8', errors='replace')
+    except Exception:
+        return ''
+
+
+def _collect_bodies(payload):
+    texts = []
+    if 'parts' in payload:
+        for part in payload['parts']:
+            texts.append(_collect_bodies(part))
+    else:
+        mime_type = payload.get('mimeType', '')
+        if mime_type.startswith('text/'):
+            texts.append(_decode_part(payload))
+    return '\n'.join(filter(None, texts))
+
+
+def _extract_urls(text):
+    if not text:
+        return []
+    text = unescape(text)
+    return URL_REGEX.findall(text)
+
+
+def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[int, int, datetime]:
+    gmail_cfg = config.get('gmail', {})
+    if not gmail_cfg.get('enabled'):
+        return 0, 0, since_dt
+
+    mailbox = gmail_cfg.get('mailbox', 'me')
+    max_messages = int(gmail_cfg.get('max_messages_per_poll', 50))
+    include_spam = gmail_cfg.get('include_spam', False)
+    query = gmail_cfg.get('query', '')
+    after_ts = int(since_dt.timestamp()) if since_dt else None
+    if after_ts:
+        query = (query + ' ' if query else '') + f'after:{after_ts}'
+
+    list_kwargs = {
+        'userId': mailbox,
+        'maxResults': max_messages,
+    }
+    if query:
+        list_kwargs['q'] = query.strip()
+    if not include_spam:
+        list_kwargs['labelIds'] = ['INBOX']
+
+    response = gmail_service.users().messages().list(**list_kwargs).execute()
+    message_ids = [m['id'] for m in response.get('messages', [])]
+
+    scanned = 0
+    flagged = 0
+    latest_seen = since_dt
+
+    high_risk_names = [name.lower() for name in gmail_cfg.get('high_risk_display_names', [])]
+    allowed_sender_domains = [d.lower() for d in gmail_cfg.get('allowed_sender_domains', [])]
+    trusted_file_domains = [d.lower() for d in gmail_cfg.get('trusted_file_domains', [])]
+    share_link_domains = [d.lower() for d in gmail_cfg.get('share_link_domains', [])]
+
+    for message_id in message_ids:
+        msg = gmail_service.users().messages().get(userId=mailbox, id=message_id, format='full').execute()
+        internal_ts = datetime.fromtimestamp(int(msg.get('internalDate', 0)) / 1000, tz=timezone.utc)
+        if internal_ts <= since_dt:
+            continue
+
+        scanned += 1
+        if not latest_seen or internal_ts > latest_seen:
+            latest_seen = internal_ts
+
+        headers = msg.get('payload', {}).get('headers', [])
+        header_dict = {h['name'].lower(): h['value'] for h in headers}
+
+        subject = header_dict.get('subject', '(no subject)')
+        sender_header = header_dict.get('from', '')
+        sender_display, sender_email = parseaddr(sender_header)
+        sender_email = sender_email.lower()
+        sender_domain = sender_email.split('@')[-1] if '@' in sender_email else ''
+        recipients = header_dict.get('to', '')
+        auth_results = header_dict.get('authentication-results', '')
+
+        body_text = _collect_bodies(msg.get('payload', {}))
+        snippet = msg.get('snippet', '')
+
+        urls = _extract_urls(body_text or snippet)
+        suspicious_reasons = set()
+        share_links = set()
+
+        # External share links
+        for url in urls:
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            if not domain:
+                continue
+            if any(domain.endswith(td) for td in trusted_file_domains):
+                continue
+            if any(sd in domain for sd in share_link_domains):
+                share_links.add(url)
+                suspicious_reasons.add(f"External file share link: {domain}")
+
+        display_lower = sender_display.lower() if sender_display else ''
+        if high_risk_names and any(term in display_lower for term in high_risk_names):
+            if sender_domain and sender_domain not in allowed_sender_domains:
+                suspicious_reasons.add(f"Display name '{sender_display}' matches high-risk role")
+
+        if sender_domain and sender_domain not in allowed_sender_domains:
+            if 'lcps' in sender_domain and not any(sender_domain.endswith(dom) for dom in allowed_sender_domains):
+                suspicious_reasons.add(f"Sender domain looks similar to LCPS but is not trusted: {sender_domain}")
+
+        auth_lower = auth_results.lower()
+        if auth_lower:
+            if 'spf=fail' in auth_lower or 'spf=softfail' in auth_lower:
+                suspicious_reasons.add('SPF failure detected')
+            if 'dkim=fail' in auth_lower:
+                suspicious_reasons.add('DKIM failure detected')
+            if 'dmarc=fail' in auth_lower:
+                suspicious_reasons.add('DMARC failure detected')
+
+        combined_text = ' '.join(filter(None, [subject, body_text, snippet])).lower()
+        for term in high_risk_names:
+            if term and term in combined_text:
+                if sender_domain not in allowed_sender_domains:
+                    suspicious_reasons.add(f"High-risk keyword '{term}' found in message content")
+
+        if not suspicious_reasons and not share_links:
+            continue
+
+        message_time = internal_ts
+        reasons_list = sorted(suspicious_reasons)
+        share_links_list = sorted(share_links)
+
+        inserted = insert_phishing_email(
+            message_id=message_id,
+            subject=subject[:255],
+            sender_email=sender_email,
+            sender_display=sender_display[:255] if sender_display else '',
+            sender_domain=sender_domain,
+            recipients=recipients,
+            reasons=reasons_list,
+            share_links=share_links_list,
+            auth_results=auth_results,
+            snippet=snippet,
+            message_time=message_time
+        )
+
+        if inserted:
+            flagged += 1
+            if config.get('log_level', '').upper() == 'DEBUG':
+                print(f"[DEBUG] Phishing email stored: {subject} ({message_id})")
+
+            details = (
+                f"Subject: {subject}\n"
+                f"From: {sender_display} <{sender_email}>\n"
+                f"To: {recipients}\n"
+                f"Time: {message_time.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
+                f"Reasons: {', '.join(reasons_list)}\n"
+                f"Links: {'; '.join(share_links_list) if share_links_list else 'None'}\n"
+            )
+            send_email_alert(
+                f"{config['alerts']['alert_subject_prefix']} Potential Phishing Email: {subject}",
+                details,
+                config
+            )
+
+    return scanned, flagged, latest_seen or datetime.now(timezone.utc)

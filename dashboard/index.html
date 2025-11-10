@@ -346,7 +346,7 @@
                 <div class="stat-label">Security Alerts</div>
                 <div class="stat-value" id="stat-security-alerts">-</div>
             </div>
-            <div class="stat-card highlight">
+            <div class="stat-card highlight clickable" id="card-phishing-alerts">
                 <div class="stat-label">Phishing Alerts</div>
                 <div class="stat-value" id="stat-phishing-alerts">-</div>
             </div>
@@ -462,7 +462,37 @@
             </div>
         </div>
     </div>
- 
+
+    <div id="phishing-modal" class="modal">
+        <div id="phishing-modal-backdrop" class="modal-backdrop"></div>
+        <div class="modal-dialog">
+            <button id="phishing-modal-close" class="modal-close" aria-label="Close">&times;</button>
+            <div class="modal-header">
+                <h2>Suspicious Emails</h2>
+                <p id="phishing-modal-summary" style="color: #a0a0a0; font-size: 14px;">No phishing emails detected.</p>
+            </div>
+            <div class="modal-body">
+                <div id="phishing-modal-empty" class="empty-state" style="display: none;">
+                    No suspicious emails detected in the selected timeframe.
+                </div>
+                <div id="phishing-modal-table-container" style="display: none;">
+                    <table class="modal-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Subject</th>
+                                <th>Sender</th>
+                                <th>Reasons</th>
+                                <th>Links</th>
+                            </tr>
+                        </thead>
+                        <tbody id="phishing-modal-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         const API_BASE = window.location.origin;
 
@@ -472,7 +502,8 @@
  
          // Dashboard refresh interval (will be set from API)
          let refreshInterval = 30000; // Default 30 seconds
-        let travelAlertsData = [];
+         let travelAlertsData = [];
+         let phishingEmailsData = [];
         let allLoginData = [];
         const loginFilterInputs = {};
 
@@ -488,13 +519,15 @@
                 }
 
                 // Update stats
+                const phishingCount = (data.stats?.phishing_alerts || 0) + (data.stats?.phishing_emails || 0);
                 document.getElementById('stat-login-attempts').textContent = data.stats?.login_attempts || 0;
                 document.getElementById('stat-impossible-travel').textContent = data.stats?.impossible_travel || 0;
                 document.getElementById('stat-security-alerts').textContent = data.stats?.security_alerts || 0;
-                document.getElementById('stat-phishing-alerts').textContent = data.stats?.phishing_alerts || 0;
+                document.getElementById('stat-phishing-alerts').textContent = phishingCount;
 
                 // Update impossible travel map
                 setTravelAlerts(data.impossible_travel || []);
+                setPhishingEmails(data.phishing_emails || []);
 
                 // Update login attempts table
                 setLoginData(data.recent_logins || []);
@@ -614,16 +647,74 @@
             updateTravelMap(travelAlertsData);
             renderTravelModal(travelAlertsData);
         }
-
+ 
         function openTravelModal() {
             const modal = document.getElementById('travel-modal');
             if (!modal) return;
             renderTravelModal(travelAlertsData);
             modal.classList.add('show');
         }
-
+ 
         function closeTravelModal() {
             const modal = document.getElementById('travel-modal');
+            if (!modal) return;
+            modal.classList.remove('show');
+        }
+
+        function renderPhishingEmailsModal(emails) {
+            const emptyState = document.getElementById('phishing-modal-empty');
+            const tableContainer = document.getElementById('phishing-modal-table-container');
+            const tbody = document.getElementById('phishing-modal-tbody');
+            const summary = document.getElementById('phishing-modal-summary');
+
+            if (!emails || emails.length === 0) {
+                summary.textContent = 'No suspicious emails detected.';
+                emptyState.style.display = 'block';
+                tableContainer.style.display = 'none';
+                tbody.innerHTML = '';
+                return;
+            }
+
+            summary.textContent = `Showing ${emails.length} recent suspicious emails.`;
+            emptyState.style.display = 'none';
+            tableContainer.style.display = 'block';
+
+            tbody.innerHTML = emails.map(email => {
+                const reasonsList = (email.reasons || []).map(reason => `<div>${reason}</div>`).join('');
+                const linksList = (email.links || []).map(link => `<div><a href="${link}" target="_blank" rel="noopener">${link}</a></div>`).join('');
+                return `
+                    <tr>
+                        <td>${email.time || 'Unknown'}</td>
+                        <td>
+                            <div>${email.subject || '(no subject)'}</div>
+                            <div style="color:#6b7280; font-size: 12px; margin-top: 4px;">${email.snippet || ''}</div>
+                        </td>
+                        <td>
+                            <div>${email.sender || 'Unknown'}</div>
+                            <div style="color:#6b7280; font-size: 12px;">${email.sender_email || ''}</div>
+                            <div style="color:#6b7280; font-size: 12px;">${email.sender_domain || ''}</div>
+                        </td>
+                        <td>${reasonsList || '<div>—</div>'}</td>
+                        <td>${linksList || '<div>—</div>'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function setPhishingEmails(emails) {
+            phishingEmailsData = Array.isArray(emails) ? emails : [];
+            renderPhishingEmailsModal(phishingEmailsData);
+        }
+
+        function openPhishingModal() {
+            const modal = document.getElementById('phishing-modal');
+            if (!modal) return;
+            renderPhishingEmailsModal(phishingEmailsData);
+            modal.classList.add('show');
+        }
+
+        function closePhishingModal() {
+            const modal = document.getElementById('phishing-modal');
             if (!modal) return;
             modal.classList.remove('show');
         }
@@ -814,10 +905,19 @@
         const travelCard = document.getElementById('card-impossible-travel');
         const travelModalClose = document.getElementById('travel-modal-close');
         const travelModalBackdrop = document.getElementById('travel-modal-backdrop');
+        const phishingCard = document.getElementById('card-phishing-alerts');
+        const phishingModalClose = document.getElementById('phishing-modal-close');
+        const phishingModalBackdrop = document.getElementById('phishing-modal-backdrop');
 
         if (travelCard) {
             travelCard.addEventListener('click', () => {
                 openTravelModal();
+            });
+        }
+
+        if (phishingCard) {
+            phishingCard.addEventListener('click', () => {
+                openPhishingModal();
             });
         }
 
@@ -829,9 +929,18 @@
             }
         });
 
+        [phishingModalClose, phishingModalBackdrop].forEach(el => {
+            if (el) {
+                el.addEventListener('click', () => {
+                    closePhishingModal();
+                });
+            }
+        });
+
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
                 closeTravelModal();
+                closePhishingModal();
             }
         });
  

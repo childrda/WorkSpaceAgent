@@ -260,7 +260,7 @@ def create_archive_dump(archive_path, retention_days):
                     val_str = f"({row[0]}, {escape_sql(row[1])}, {escape_sql(row[2])}, {escape_sql(row[3])}, {escape_sql(row[4])})"
                     values.append(val_str)
                 f.write(",\n".join(values) + ";\n\n")
-            
+
             # Archive phishing_alerts
             cursor.execute(
                 """SELECT * FROM phishing_alerts 
@@ -274,7 +274,41 @@ def create_archive_dump(archive_path, retention_days):
                 f.write("INSERT INTO phishing_alerts (id, email, owner_domain, owner_display_name, file_id, file_title, file_link, visibility, visibility_change, reason, raw_event, alerted, created_at) VALUES\n")
                 values = []
                 for row in rows:
-                    val_str = f"({row[0]}, {escape_sql(row[1])}, {escape_sql(row[2])}, {escape_sql(row[3])}, {escape_sql(row[4])}, {escape_sql(row[5])}, {escape_sql(row[6])}, {escape_sql(row[7])}, {escape_sql(row[8])}, {escape_sql(row[9])}, {escape_sql(row[10])}, {1 if row[11] else 0}, {escape_sql(row[12])})"
+                    val_str = f"({row[0]}, {escape_sql(row[1])}, {escape_sql(row[2])}, {escape_sql(row[3])}, {escape_sql(row[4])}, {escape_sql(row[5])}, {escape_sql(row[6])}, {escape_sql(row[7])}, {escape_sql(row[8])}, {escape_sql(row[9])}, {escape_sql(row[10])}, {escape_sql(row[11])}, {escape_sql(row[12])})"
+                    values.append(val_str)
+                f.write(",\n".join(values) + ";\n\n")
+
+            # Archive drive_events
+            cursor.execute(
+                """SELECT * FROM drive_events 
+                   WHERE created_at < %s 
+                   ORDER BY created_at""",
+                (cutoff_date,)
+            )
+            rows = cursor.fetchall()
+            if rows:
+                f.write("-- drive_events archive\n")
+                f.write("INSERT INTO drive_events (id, actor_email, owner_domain, owner_display_name, doc_id, doc_title, visibility, event_type, raw_event, created_at) VALUES\n")
+                values = []
+                for row in rows:
+                    val_str = f"({row[0]}, {escape_sql(row[1])}, {escape_sql(row[2])}, {escape_sql(row[3])}, {escape_sql(row[4])}, {escape_sql(row[5])}, {escape_sql(row[6])}, {escape_sql(row[7])}, {escape_sql(row[8])}, {escape_sql(row[9])})"
+                    values.append(val_str)
+                f.write(",\n".join(values) + ";\n\n")
+
+            # Archive phishing_emails
+            cursor.execute(
+                """SELECT * FROM phishing_emails 
+                   WHERE message_time < %s 
+                   ORDER BY message_time""",
+                (cutoff_date,)
+            )
+            rows = cursor.fetchall()
+            if rows:
+                f.write("-- phishing_emails archive\n")
+                f.write("INSERT INTO phishing_emails (id, message_id, subject, sender_email, sender_display, sender_domain, recipients, suspicious_reasons, share_links, auth_results, snippet, message_time, created_at) VALUES\n")
+                values = []
+                for row in rows:
+                    val_str = f"({row[0]}, {escape_sql(row[1])}, {escape_sql(row[2])}, {escape_sql(row[3])}, {escape_sql(row[4])}, {escape_sql(row[5])}, {escape_sql(row[6])}, {escape_sql(row[7])}, {escape_sql(row[8])}, {escape_sql(row[9])}, {escape_sql(row[10])}, {escape_sql(row[11])}, {escape_sql(row[12])})"
                     values.append(val_str)
                 f.write(",\n".join(values) + ";\n\n")
             
@@ -291,6 +325,84 @@ def create_archive_dump(archive_path, retention_days):
         return None
 
 
+def insert_drive_event(actor_email, owner_domain, owner_display_name, doc_id,
+                      doc_title, visibility, event_type, raw_event):
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO drive_events
+                   (actor_email, owner_domain, owner_display_name, doc_id, doc_title,
+                    visibility, event_type, raw_event)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                actor_email,
+                owner_domain,
+                owner_display_name,
+                doc_id,
+                doc_title,
+                visibility,
+                event_type,
+                json.dumps(raw_event)
+            )
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Error as e:
+        print(f"[!] drive_event insert error: {e}")
+        return False
+
+
+def insert_phishing_email(message_id, subject, sender_email, sender_display,
+                          sender_domain, recipients, reasons, share_links,
+                          auth_results, snippet, message_time):
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO phishing_emails
+                   (message_id, subject, sender_email, sender_display, sender_domain,
+                    recipients, suspicious_reasons, share_links, auth_results, snippet,
+                    message_time)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON DUPLICATE KEY UPDATE
+                     suspicious_reasons = VALUES(suspicious_reasons),
+                     share_links = VALUES(share_links),
+                     auth_results = VALUES(auth_results),
+                     snippet = VALUES(snippet),
+                     message_time = VALUES(message_time)
+            """,
+            (
+                message_id,
+                subject,
+                sender_email,
+                sender_display,
+                sender_domain,
+                recipients,
+                json.dumps(reasons or []),
+                json.dumps(share_links or []),
+                auth_results,
+                snippet,
+                message_time
+            )
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Error as e:
+        print(f"[!] phishing_email insert error: {e}")
+        return False
+
+
 def prune_old_logs(retention_days, archive_first=True, archive_path=None):
     """
     Prune logs older than retention_days from the database.
@@ -301,7 +413,9 @@ def prune_old_logs(retention_days, archive_first=True, archive_path=None):
     deleted_counts = {
         'user_logins': 0,
         'security_alerts': 0,
-        'phishing_alerts': 0
+        'phishing_alerts': 0,
+        'drive_events': 0,
+        'phishing_emails': 0
     }
     
     # Create archive if requested
@@ -338,6 +452,20 @@ def prune_old_logs(retention_days, archive_first=True, archive_path=None):
             (cutoff_date,)
         )
         deleted_counts['phishing_alerts'] = cursor.rowcount
+
+        # Prune drive_events (uses created_at)
+        cursor.execute(
+            "DELETE FROM drive_events WHERE created_at < %s",
+            (cutoff_date,)
+        )
+        deleted_counts['drive_events'] = cursor.rowcount
+
+        # Prune phishing_emails (uses message_time)
+        cursor.execute(
+            "DELETE FROM phishing_emails WHERE message_time < %s",
+            (cutoff_date,)
+        )
+        deleted_counts['phishing_emails'] = cursor.rowcount
         
         conn.commit()
         cursor.close()
@@ -348,6 +476,8 @@ def prune_old_logs(retention_days, archive_first=True, archive_path=None):
         print(f"    - user_logins: {deleted_counts['user_logins']}")
         print(f"    - security_alerts: {deleted_counts['security_alerts']}")
         print(f"    - phishing_alerts: {deleted_counts['phishing_alerts']}")
+        print(f"    - drive_events: {deleted_counts['drive_events']}")
+        print(f"    - phishing_emails: {deleted_counts['phishing_emails']}")
         
         return deleted_counts
         

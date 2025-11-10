@@ -12,6 +12,9 @@
     "enable_email": true,
     "alert_subject_prefix": "[SECURITY ALERT]"
   },
+  "drive": {
+    "enabled": true
+  },
   "security": {
     "impossible_travel_threshold_mph": 500,
     "allowed_states": ["VA", "Virginia"],
@@ -28,7 +31,8 @@
       "public",
       "anyoneWithTheLink",
       "anyone_with_the_link"
-    ]
+    ],
+    "log_all_drive_events": false
   },
   "dashboard": {
     "display_timezone": "America/New_York",
@@ -38,6 +42,7 @@
       "impossible_travel": 10,
       "recent_logins": 10,
       "phishing_alerts": 10,
+      "phishing_emails": 10,
       "login_pairs": 2
     }
   },
@@ -45,6 +50,33 @@
     "retention_days": 180,
     "archive_path": "/opt/mcp_agent/archives",
     "enable_archiving": true
+  },
+  "gmail": {
+    "enabled": true,
+    "mailbox": "security-alerts@yourdomain.com",
+    "poll_lookback_minutes": 10,
+    "max_messages_per_poll": 50,
+    "include_spam": false,
+    "allowed_sender_domains": ["yourdomain.com"],
+    "trusted_file_domains": ["yourdomain.com"],
+    "high_risk_display_names": [
+      "superintendent",
+      "chief financial officer",
+      "cfo",
+      "principal",
+      "finance director"
+    ],
+    "share_link_domains": [
+      "docs.google.com",
+      "drive.google.com",
+      "forms.gle",
+      "forms.google.com",
+      "sharepoint.com",
+      "onedrive.live.com",
+      "1drv.ms",
+      "dropbox.com",
+      "box.com"
+    ]
   }
 }
 

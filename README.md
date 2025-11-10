@@ -15,6 +15,7 @@ A Python-based security monitoring agent that continuously monitors Google Works
 - **Impersonation Detection**: Flags attempts to impersonate leadership roles (superintendent, principal, etc.)
 - **External User Monitoring**: Tracks suspicious activity from external domains
 - **Combined Risk Analysis**: Detects high-risk combinations of public sharing and impersonation
+- **Inbound Email Scanning (Gmail)**: Parses recent messages to flag suspicious links, spoofed leadership emails, and authentication failures
 
 ### 📊 Data Storage
 - MySQL database for persistent storage of:
@@ -28,7 +29,7 @@ A Python-based security monitoring agent that continuously monitors Google Works
 - Linux operating system (Ubuntu, Debian, CentOS, RHEL, etc.)
 - Python 3.7+
 - MySQL 5.7+ or MariaDB 10.3+
-- Google Workspace Admin API access
+- Gmail API access (read-only)
 - MaxMind GeoLite2 City database
 - Google Service Account with appropriate permissions
 
@@ -275,6 +276,12 @@ MYSQL_DB=mcp_logs
 }
 ```
 
+-If you need additional sections, copy `config.json.example` and update as needed.
+To inspect every Drive event for troubleshooting, set "log_all_drive_events": true inside the phishing block (see config.json.example). Remember to create the drive_events table or rerun schema.sql first.
+You can also disable Drive processing entirely by setting `"drive": { "enabled": false }` if you only want Gmail scanning.
+
+For Gmail scanning, add the `gmail` block from `config.json.example`, set `mailbox` to the delegated inbox you want to monitor, and make sure Gmail API read access is enabled for your service account.
+
 ## Usage
 
 ### Running the Agent
@@ -384,10 +391,12 @@ The script will:
 The service account requires the following OAuth scopes:
 - `https://www.googleapis.com/auth/admin.reports.audit.readonly` - Read audit logs
 - `https://www.googleapis.com/auth/apps.alerts` - Access Alert Center
+- `https://www.googleapis.com/auth/gmail.readonly` - Read Gmail messages for phishing detection
 
 The service account must have domain-wide delegation enabled and be granted access to:
 - Admin SDK (Reports API)
 - Alert Center API
+- Gmail API (read-only)
 
 ## Database Schema
 
@@ -395,152 +404,20 @@ The agent uses three main tables:
 
 - **user_logins**: Stores login events with geolocation data
 - **security_alerts**: Stores security alerts (impossible travel, new device, etc.)
-- **phishing_alerts**: Stores phishing and impersonation alerts
+- **phishing_alerts**: Stores phishing and impersonation alerts from Drive
+- **drive_events** *(optional)*: Raw Google Drive events when `log_all_drive_events` is enabled
+- **phishing_emails** *(optional)*: Suspicious Gmail messages detected by the phishing scanner
 
-See `schema.sql` for the complete database schema.
+### Gmail Phishing Detection (Optional)
 
-## Alert Types
+1. **Enable Gmail API** for your service account and add the `https://www.googleapis.com/auth/gmail.readonly` scope to `GOOGLE_SCOPES` in `.env`.
+2. **Grant domain-wide delegation** for the Gmail API to the service account and ensure the delegated mailbox (configured in `config.json`) has read access to the messages you want to monitor.
+3. **Create the optional database tables** by rerunning `schema.sql` (or manually creating `drive_events` and `phishing_emails` as documented in `SCHEMA_UPDATE.md`).
+4. **Update `config.json`** with the `gmail` block (see `config.json.example`) and set:
+   - `mailbox`: the delegated mailbox to scan (e.g., `security-alerts@yourdomain.com`)
+   - `allowed_sender_domains`: trusted internal domains (messages from these domains are not flagged by impersonation rules)
+   - `trusted_file_domains`: file-sharing domains you trust (e.g., `yourdomain.com`)
+   - `high_risk_display_names`: names/roles you want to monitor for spoofing (superintendent, CFO, principal, etc.)
+5. **Restart the agent** so the new configuration and scope take effect.
 
-### Security Alerts
-- `impossible_travel`: Login from distant location in short time
-- `new_device_login`: New device login detected
-- `new_device_outside_va`: New device login outside Virginia state
-
-### Phishing Alerts
-- Documents shared with "anyone with the link"
-- Impersonation attempts (superintendent, principal, etc.)
-- External users with suspicious sharing patterns
-
-## Dashboard
-
-The agent includes a web-based security dashboard for visualizing alerts and login activity.
-
-### Running the Dashboard
-
-**If using virtual environment:**
-```bash
-cd /opt/mcp_agent
-source venv/bin/activate
-python dashboard_api.py
-```
-
-**If not using virtual environment:**
-```bash
-cd /opt/mcp_agent
-python3 dashboard_api.py
-```
-
-**Access the dashboard:**
-Open your browser and navigate to: `http://localhost:5000` (or the port configured in your `.env` file)
-
-**Running as a background service:**
-```bash
-# Using nohup (simple method)
-cd /opt/mcp_agent
-source venv/bin/activate
-nohup python dashboard_api.py > dashboard.log 2>&1 &
-
-# Or using systemd (recommended for production)
-# Create /etc/systemd/system/mcp-dashboard.service (see below)
-sudo systemctl start mcp-dashboard
-sudo systemctl enable mcp-dashboard
-```
-
-**Systemd service file example** (`/etc/systemd/system/mcp-dashboard.service`):
-```ini
-[Unit]
-Description=Google Workspace Security Dashboard
-After=network.target mysql.service
-
-[Service]
-Type=simple
-User=your-username
-WorkingDirectory=/opt/mcp_agent
-Environment="PATH=/opt/mcp_agent/venv/bin"
-ExecStart=/opt/mcp_agent/venv/bin/python /opt/mcp_agent/dashboard_api.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-**Note:** Both the agent and dashboard can share the same virtual environment. They run independently and can be started in separate terminal windows or as separate systemd services.
-
-The dashboard displays:
-- **Top Metrics**: Login attempts, impossible travel alerts, security alerts, and phishing alerts
-- **Impossible Travel Map**: Visual representation of impossible travel alerts with location markers
-- **Login Attempts Table**: Recent login activity displayed in your configured timezone with per-column filters for user, IP address, and login status
-- **Security Alerts by Type**: Bar chart showing alert breakdown
-- **Phishing Alerts by Recipient**: Horizontal bar chart of phishing targets
-- **Phishing Alerts Table**: Recent phishing attempts
-
-The dashboard auto-refreshes every 30 seconds to show the latest data.
-
-## File Structure
-
-```
-WorkSpaceAgent/
-├── workspace_agent.py      # Main agent loop
-├── login_processor.py      # Login event processing
-├── drive_processor.py      # Drive event processing
-├── alert_utils.py          # Alert fetching and email sending
-├── db_helpers.py           # Database operations
-├── geo_utils.py            # IP geolocation utilities
-├── prune_logs.py          # Log retention and archiving script
-├── dashboard_api.py        # Dashboard API server
-├── dashboard/              # Dashboard frontend
-│   └── index.html         # Dashboard HTML/CSS/JS
-├── config.json             # Application configuration
-├── schema.sql              # Database schema
-├── requirements.txt        # Python dependencies
-├── example.env             # Environment variable template
-└── README.md              # This file
-```
-
-## Security Considerations
-
-- Never commit `.env` or `service_account.json` to version control
-- Store service account credentials securely
-- Use strong passwords for database and SMTP accounts
-- Regularly update the GeoLite2 database
-- Monitor alert emails for false positives and adjust thresholds as needed
-
-## Troubleshooting
-
-### Common Issues
-
-**Geo lookup fails**
-- Ensure GeoLite2-City.mmdb file exists and path is correct
-- Check file permissions
-
-**Database connection errors**
-- Verify MySQL is running
-- Check database credentials in .env
-- Ensure database and user exist
-
-**Google API errors**
-- Verify service account has correct permissions
-- Check domain-wide delegation is enabled
-- Ensure required APIs are enabled in Google Cloud Console
-
-**No alerts received**
-- Check SMTP configuration in .env
-- Verify ALERT_EMAIL is correct
-- Check spam folder
-
-## License
-
-This project is provided as-is for educational and security monitoring purposes.
-
-## Contributing
-
-Contributions are welcome! Please ensure:
-- Code follows PEP 8 style guidelines
-- New features include appropriate error handling
-- Database migrations are included if schema changes are made
-
-## Support
-
-For issues and questions, please open an issue on the GitHub repository.
-
+The agent stores suspicious Gmail messages in the `phishing_emails` table and issues email alerts (if enabled) summarising the reasons (external share links, spoofed display names, SPF/DKIM/DMARC failures, etc.).

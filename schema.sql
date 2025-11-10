@@ -46,3 +46,36 @@ CREATE TABLE IF NOT EXISTS security_alerts (
   INDEX idx_email (email),
   INDEX idx_created_at (created_at)
 );
+
+CREATE TABLE IF NOT EXISTS drive_events (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  actor_email VARCHAR(255),
+  owner_domain VARCHAR(255),
+  owner_display_name VARCHAR(255),
+  doc_id VARCHAR(128),
+  doc_title TEXT,
+  visibility VARCHAR(128),
+  event_type VARCHAR(128),
+  raw_event JSON,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_actor_email (actor_email),
+  INDEX idx_created_at (created_at)
+);
+
+CREATE TABLE IF NOT EXISTS phishing_emails (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  message_id VARCHAR(255) UNIQUE,
+  subject VARCHAR(255),
+  sender_email VARCHAR(255),
+  sender_display VARCHAR(255),
+  sender_domain VARCHAR(255),
+  recipients TEXT,
+  suspicious_reasons JSON,
+  share_links JSON,
+  auth_results TEXT,
+  snippet TEXT,
+  message_time DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_sender_email (sender_email),
+  INDEX idx_message_time (message_time)
+);

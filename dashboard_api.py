@@ -101,6 +101,12 @@ def get_dashboard_stats():
             (cutoff_date,)
         )
         phishing_alerts = cursor.fetchone()['count']
+
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM phishing_emails WHERE message_time >= %s",
+            (cutoff_date,)
+        )
+        phishing_emails = cursor.fetchone()['count']
         
         cursor.close()
         conn.close()
@@ -109,7 +115,8 @@ def get_dashboard_stats():
             'login_attempts': login_attempts,
             'impossible_travel': impossible_travel,
             'security_alerts': security_alerts,
-            'phishing_alerts': phishing_alerts
+            'phishing_alerts': phishing_alerts,
+            'phishing_emails': phishing_emails
         }
     except Error as e:
         print(f"[!] Error getting dashboard stats: {e}")
@@ -367,6 +374,58 @@ def get_phishing_alerts(limit=None):
         return []
 
 
+def get_phishing_emails(limit=None):
+    if limit is None:
+        limit = CONFIG.get('dashboard', {}).get('query_limits', {}).get('phishing_emails', 10)
+
+    conn = get_db_connection()
+    if not conn:
+        return []
+
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            """SELECT subject, sender_email, sender_display, sender_domain,
+                       suspicious_reasons, share_links, snippet, message_time
+                   FROM phishing_emails
+                   ORDER BY message_time DESC
+                   LIMIT %s""",
+            (limit,)
+        )
+        emails = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        results = []
+        for email in emails:
+            reasons = []
+            links = []
+            try:
+                reasons = json.loads(email.get('suspicious_reasons') or '[]')
+            except json.JSONDecodeError:
+                reasons = []
+            try:
+                links = json.loads(email.get('share_links') or '[]')
+            except json.JSONDecodeError:
+                links = []
+
+            results.append({
+                'subject': email.get('subject') or '(no subject)',
+                'sender': email.get('sender_display') or email.get('sender_email') or 'Unknown',
+                'sender_email': email.get('sender_email'),
+                'sender_domain': email.get('sender_domain'),
+                'reasons': reasons,
+                'links': links,
+                'snippet': email.get('snippet') or '',
+                'time': format_login_time(email.get('message_time'))
+            })
+
+        return results
+    except Error as e:
+        print(f"[!] Error getting phishing emails: {e}")
+        return []
+
+
 @app.route('/api/stats', methods=['GET'])
 def api_stats():
     """Get dashboard statistics."""
@@ -413,6 +472,14 @@ def api_phishing_alerts():
     return jsonify(alerts)
 
 
+@app.route('/api/phishing-emails', methods=['GET'])
+def api_phishing_emails():
+    """Get recent phishing emails."""
+    limit = int(request.args.get('limit', 10))
+    emails = get_phishing_emails(limit)
+    return jsonify(emails)
+
+
 @app.route('/api/dashboard', methods=['GET'])
 def api_dashboard():
     """Get all dashboard data in one call."""
@@ -423,6 +490,7 @@ def api_dashboard():
         'security_alerts_by_type': get_security_alerts_by_type(),
         'phishing_by_recipient': get_phishing_alerts_by_recipient(),
         'phishing_alerts': get_phishing_alerts(),
+        'phishing_emails': get_phishing_emails(),
         'refresh_interval': get_refresh_interval()
     })
 

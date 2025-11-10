@@ -31,7 +31,60 @@ mysql -u root -p mcp_logs < migration_add_login_success.sql
 
 You will be prompted to enter your MySQL password.
 
-### Step 3: Verify the Update
+### Step 2 (Optional): Create the drive_events table
+
+If you want to enable the debugging flag that stores every Google Drive event, add the new `drive_events` table:
+
+```bash
+mysql -u mcp_agent -p mcp_logs -e "
+CREATE TABLE IF NOT EXISTS drive_events (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  actor_email VARCHAR(255),
+  owner_domain VARCHAR(255),
+  owner_display_name VARCHAR(255),
+  doc_id VARCHAR(128),
+  doc_title TEXT,
+  visibility VARCHAR(128),
+  event_type VARCHAR(128),
+  raw_event JSON,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_actor_email (actor_email),
+  INDEX idx_created_at (created_at)
+);
+"
+```
+
+If you prefer SQL files, just rerun `schema.sql` and the table will be created automatically.
+
+### Step 3 (Optional): Create the phishing_emails table
+
+If you plan to enable Gmail phishing detection, add the `phishing_emails` table to capture suspicious messages:
+
+```bash
+mysql -u mcp_agent -p mcp_logs -e "
+CREATE TABLE IF NOT EXISTS phishing_emails (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  message_id VARCHAR(255) UNIQUE,
+  subject VARCHAR(255),
+  sender_email VARCHAR(255),
+  sender_display VARCHAR(255),
+  sender_domain VARCHAR(255),
+  recipients TEXT,
+  suspicious_reasons JSON,
+  share_links JSON,
+  auth_results TEXT,
+  snippet TEXT,
+  message_time DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_sender_email (sender_email),
+  INDEX idx_message_time (message_time)
+);
+"
+```
+
+Again, rerunning `schema.sql` will create both optional tables automatically.
+
+### Step 4: Verify the Update
 
 Connect to MySQL and check the table structure:
 ```bash
@@ -138,6 +191,8 @@ mysql -u root -p mcp_logs < schema.sql
 ## What This Update Does
 
 - **Adds a new column** `login_success` to the `user_logins` table
+- **Optionally adds** a `drive_events` table for storing raw Drive audit events when debugging
+- **Optionally adds** a `phishing_emails` table so Gmail phishing detections can be stored and reviewed
 - **Sets default value** to `TRUE` (meaning successful logins)
 - **Updates existing records** to mark them all as successful (since we don't have historical success/failure data)
 - **Future logins** will be properly marked as successful or failed based on the Google Workspace event data

@@ -1,7 +1,18 @@
 import json
 from datetime import datetime
 from alert_utils import send_email_alert
-from db_helpers import insert_phishing_alert
+from db_helpers import insert_phishing_alert, insert_drive_event
+
+
+def _extract_param_value(param):
+    if not isinstance(param, dict):
+        return None
+    for key in ('value', 'stringValue', 'intValue', 'boolValue'):
+        if param.get(key) is not None:
+            return param[key]
+    if param.get('multiValue'):
+        return param['multiValue']
+    return None
 
 
 def process_drive_event(item, CONFIG):
@@ -9,15 +20,24 @@ def process_drive_event(item, CONFIG):
     Analyze Google Drive audit logs for potential phishing or impersonation attempts.
     """
     DOMAIN = CONFIG['domain']
-    params = {p['name']: p.get('value', '') for p in item.get('parameters', [])}
+    params = {}
+    for param in item.get('parameters', []):
+        name = param.get('name')
+        if name:
+            params[name] = _extract_param_value(param)
     actor = item.get('actor', {}).get('email', 'unknown')
     timestamp = datetime.strptime(item['id']['time'], '%Y-%m-%dT%H:%M:%S.%fZ')
     event_name = item.get('name', '')
 
-    visibility = params.get('new_value', '')
+    visibility = (
+        params.get('new_value')
+        or params.get('visibility_change')
+        or params.get('visibility')
+        or ''
+    )
     visibility_change = params.get('visibility_change', '')
-    owner_domain = params.get('primary_owner') or params.get('owner_domain', '')
-    owner_display_name = params.get('owner_display_name', '')
+    owner_domain = params.get('primary_owner') or params.get('owner_domain') or ''
+    owner_display_name = params.get('owner_display_name') or params.get('owner', '')
     doc_id = params.get('doc_id', '')
     title = params.get('doc_title', 'Untitled Document')
     file_link = f"https://drive.google.com/open?id={doc_id}" if doc_id else "N/A"
@@ -86,6 +106,18 @@ def process_drive_event(item, CONFIG):
         is_phishing_risk = True
         reasons.append("CRITICAL: Public sharing combined with impersonation attempt")
 
+    if CONFIG.get('phishing', {}).get('log_all_drive_events'):
+        insert_drive_event(
+            actor if actor != 'unknown' else None,
+            owner_domain,
+            owner_display_name,
+            doc_id,
+            title,
+            visibility,
+            event_name,
+            item
+        )
+
     if is_phishing_risk:
         reason_text = '; '.join(reasons)
         subject = f"{CONFIG['alerts']['alert_subject_prefix']} PHISHING ALERT: Suspicious Drive Share to {actor}"
@@ -102,6 +134,10 @@ def process_drive_event(item, CONFIG):
             f"Event Type: {event_name}\n"
         )
 
+        if CONFIG.get('log_level', '').upper() == 'DEBUG':
+            print(f"[DEBUG] Phishing alert triggered: {reason_text}")
+            print(json.dumps(item, indent=2))
+
         send_email_alert(subject, msg, CONFIG)
         insert_phishing_alert(
             actor,
@@ -116,3 +152,6 @@ def process_drive_event(item, CONFIG):
             item,
             True
         )
+
+    elif CONFIG.get('phishing', {}).get('log_all_drive_events') and CONFIG.get('log_level', '').upper() == 'DEBUG':
+        print("[DEBUG] Drive event stored for review (no phishing alert triggered).")
