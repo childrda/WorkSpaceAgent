@@ -142,20 +142,36 @@ def get_impossible_travel_alerts():
         for alert in alerts:
             email = alert['email']
             login_pairs_limit = CONFIG.get('dashboard', {}).get('query_limits', {}).get('login_pairs', 2)
-            
+            fetch_limit = max(login_pairs_limit * 3, login_pairs_limit + 1)
+
             cursor.execute(
                 """SELECT ip, latitude, longitude, city, region, country, login_time
                    FROM user_logins
                    WHERE email = %s AND latitude IS NOT NULL AND longitude IS NOT NULL
                    ORDER BY login_time DESC
                    LIMIT %s""",
-                (email, login_pairs_limit)
+                (email, fetch_limit)
             )
-            logins = cursor.fetchall()
-            
-            if len(logins) >= 2:
-                latest = logins[0]
-                previous = logins[1]
+            raw_logins = cursor.fetchall()
+
+            unique_logins = []
+            seen_locations = set()
+            for entry in raw_logins:
+                lat = entry.get('latitude')
+                lon = entry.get('longitude')
+                if lat is None or lon is None:
+                    continue
+                key = (round(float(lat), 4), round(float(lon), 4), entry.get('ip'))
+                if key in seen_locations:
+                    continue
+                seen_locations.add(key)
+                unique_logins.append(entry)
+                if len(unique_logins) >= 2:
+                    break
+
+            if len(unique_logins) >= 2:
+                latest = unique_logins[0]
+                previous = unique_logins[1]
                 distance = None
                 speed = None
                 delta_minutes = None
