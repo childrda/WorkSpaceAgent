@@ -298,8 +298,8 @@ def create_archive_dump(archive_path, retention_days):
             # Archive phishing_emails
             cursor.execute(
                 """SELECT * FROM phishing_emails 
-                   WHERE message_time < %s 
-                   ORDER BY message_time""",
+                   WHERE created_at < %s 
+                   ORDER BY created_at""",
                 (cutoff_date,)
             )
             rows = cursor.fetchall()
@@ -394,10 +394,11 @@ def insert_phishing_email(message_id, subject, sender_email, sender_display,
                 message_time
             )
         )
+        inserted = cursor.rowcount == 1
         conn.commit()
         cursor.close()
         conn.close()
-        return True
+        return inserted
     except Error as e:
         print(f"[!] phishing_email insert error: {e}")
         return False
