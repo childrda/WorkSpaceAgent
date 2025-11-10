@@ -14,6 +14,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from db_helpers import get_db_connection
 from mysql.connector import Error
+from geo_utils import distance_miles
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -140,11 +141,10 @@ def get_impossible_travel_alerts():
         travel_alerts = []
         for alert in alerts:
             email = alert['email']
-            # Get last N logins for this user (configurable)
             login_pairs_limit = CONFIG.get('dashboard', {}).get('query_limits', {}).get('login_pairs', 2)
             
             cursor.execute(
-                """SELECT latitude, longitude, city, region, login_time
+                """SELECT ip, latitude, longitude, city, region, country, login_time
                    FROM user_logins
                    WHERE email = %s AND latitude IS NOT NULL AND longitude IS NOT NULL
                    ORDER BY login_time DESC
@@ -154,21 +154,60 @@ def get_impossible_travel_alerts():
             logins = cursor.fetchall()
             
             if len(logins) >= 2:
+                latest = logins[0]
+                previous = logins[1]
+                distance = None
+                speed = None
+                delta_minutes = None
+                try:
+                    distance = distance_miles(
+                        float(previous['latitude']),
+                        float(previous['longitude']),
+                        float(latest['latitude']),
+                        float(latest['longitude'])
+                    )
+                except (TypeError, ValueError):
+                    distance = None
+
+                latest_time = latest.get('login_time')
+                previous_time = previous.get('login_time')
+                if isinstance(latest_time, datetime) and isinstance(previous_time, datetime):
+                    delta_hours = (latest_time - previous_time).total_seconds() / 3600
+                    if delta_hours > 0:
+                        delta_minutes = round(delta_hours * 60, 1)
+                        if distance is not None:
+                            speed = distance / delta_hours if delta_hours else None
+                    if delta_hours <= 0 and distance is not None:
+                        # Use absolute value for display but avoid division by zero
+                        delta_minutes = round(abs(delta_hours) * 60, 1)
+
                 travel_alerts.append({
                     'email': email,
+                    'details': alert.get('details'),
+                    'created_at': format_login_time(alert.get('created_at')),
                     'from': {
-                        'city': logins[1].get('city', 'Unknown'),
-                        'lat': float(logins[1]['latitude']),
-                        'lon': float(logins[1]['longitude'])
+                        'city': previous.get('city', 'Unknown'),
+                        'region': previous.get('region', 'Unknown'),
+                        'country': previous.get('country', 'Unknown'),
+                        'ip': previous.get('ip', 'N/A'),
+                        'time': format_login_time(previous.get('login_time')),
+                        'lat': float(previous['latitude']),
+                        'lon': float(previous['longitude'])
                     },
                     'to': {
-                        'city': logins[0].get('city', 'Unknown'),
-                        'lat': float(logins[0]['latitude']),
-                        'lon': float(logins[0]['longitude'])
+                        'city': latest.get('city', 'Unknown'),
+                        'region': latest.get('region', 'Unknown'),
+                        'country': latest.get('country', 'Unknown'),
+                        'ip': latest.get('ip', 'N/A'),
+                        'time': format_login_time(latest.get('login_time')),
+                        'lat': float(latest['latitude']),
+                        'lon': float(latest['longitude'])
                     },
-                    'time': alert['created_at'].isoformat() if isinstance(alert['created_at'], datetime) else str(alert['created_at'])
+                    'distance_miles': round(distance, 1) if distance is not None else None,
+                    'speed_mph': round(speed, 1) if speed is not None else None,
+                    'delta_minutes': delta_minutes
                 })
-        
+ 
         cursor.close()
         conn.close()
         return travel_alerts

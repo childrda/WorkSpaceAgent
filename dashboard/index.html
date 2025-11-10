@@ -54,6 +54,16 @@
             border-color: #ff6b35;
         }
 
+        .stat-card.clickable {
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+        }
+
+        .stat-card.clickable:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+        }
+
         .stat-label {
             font-size: 14px;
             color: #a0a0a0;
@@ -209,6 +219,95 @@
             font-weight: 600;
         }
 
+        .modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+        }
+
+        .modal-dialog {
+            position: relative;
+            background: #0f1429;
+            border: 1px solid #2a2f4a;
+            border-radius: 10px;
+            max-width: 900px;
+            width: 90%;
+            max-height: 80vh;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            padding: 20px 24px 0 24px;
+        }
+
+        .modal-header h2 {
+            font-size: 22px;
+            margin-bottom: 8px;
+        }
+
+        .modal-body {
+            padding: 0 24px 24px 24px;
+            overflow-y: auto;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: transparent;
+            border: none;
+            color: #ffffff;
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        .modal-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+
+        .modal-table th,
+        .modal-table td {
+            padding: 12px;
+            font-size: 14px;
+            border-bottom: 1px solid #2a2f4a;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .modal-table th {
+            color: #a0a0a0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .modal-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .empty-state {
+            padding: 32px;
+            text-align: center;
+            color: #a0a0a0;
+        }
+
         .chart-container {
             height: 250px;
             position: relative;
@@ -239,7 +338,7 @@
                 <div class="stat-label">Login Attempts</div>
                 <div class="stat-value" id="stat-login-attempts">-</div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card clickable" id="card-impossible-travel">
                 <div class="stat-label">Impossible Travel Alerts</div>
                 <div class="stat-value" id="stat-impossible-travel">-</div>
             </div>
@@ -333,15 +432,47 @@
         </div>
     </div>
 
+    <div id="travel-modal" class="modal">
+        <div id="travel-modal-backdrop" class="modal-backdrop"></div>
+        <div class="modal-dialog">
+            <button id="travel-modal-close" class="modal-close" aria-label="Close">&times;</button>
+            <div class="modal-header">
+                <h2>Impossible Travel Alerts</h2>
+                <p id="travel-modal-summary" style="color: #a0a0a0; font-size: 14px;">No alerts to display.</p>
+            </div>
+            <div class="modal-body">
+                <div id="travel-modal-empty" class="empty-state" style="display: none;">
+                    No impossible travel alerts in the selected timeframe.
+                </div>
+                <div id="travel-modal-table-container" style="display: none;">
+                    <table class="modal-table">
+                        <thead>
+                            <tr>
+                                <th>Alert Time</th>
+                                <th>User</th>
+                                <th>From</th>
+                                <th>To</th>
+                                <th>Distance</th>
+                                <th>Speed</th>
+                            </tr>
+                        </thead>
+                        <tbody id="travel-modal-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+ 
     <script>
         const API_BASE = window.location.origin;
 
         // Charts
         let securityChart = null;
         let phishingRecipientChart = null;
-
-        // Dashboard refresh interval (will be set from API)
-        let refreshInterval = 30000; // Default 30 seconds
+ 
+         // Dashboard refresh interval (will be set from API)
+         let refreshInterval = 30000; // Default 30 seconds
+        let travelAlertsData = [];
         let allLoginData = [];
         const loginFilterInputs = {};
 
@@ -363,7 +494,7 @@
                 document.getElementById('stat-phishing-alerts').textContent = data.stats?.phishing_alerts || 0;
 
                 // Update impossible travel map
-                updateTravelMap(data.impossible_travel || []);
+                setTravelAlerts(data.impossible_travel || []);
 
                 // Update login attempts table
                 setLoginData(data.recent_logins || []);
@@ -430,6 +561,71 @@
                     svg.appendChild(text);
                 });
             });
+        }
+
+        function formatTravelLocation(info) {
+            info = info || {};
+            const parts = [info.city, info.region, info.country].filter(Boolean);
+            const location = parts.join(', ');
+            const ipLine = info.ip ? `<div style="color:#6b7280; font-size: 12px;">IP: ${info.ip}</div>` : '';
+            const timeLine = info.time ? `<div style="color:#6b7280; font-size: 12px;">${info.time}</div>` : '';
+            return `<div>${location || 'Unknown'}</div>${ipLine}${timeLine}`;
+        }
+
+        function renderTravelModal(alerts) {
+            const emptyState = document.getElementById('travel-modal-empty');
+            const tableContainer = document.getElementById('travel-modal-table-container');
+            const tbody = document.getElementById('travel-modal-tbody');
+            const summary = document.getElementById('travel-modal-summary');
+
+            if (!alerts || alerts.length === 0) {
+                summary.textContent = 'No impossible travel alerts to display.';
+                emptyState.style.display = 'block';
+                tableContainer.style.display = 'none';
+                tbody.innerHTML = '';
+                return;
+            }
+
+            summary.textContent = `Showing ${alerts.length} recent impossible travel alerts.`;
+            emptyState.style.display = 'none';
+            tableContainer.style.display = 'block';
+
+            tbody.innerHTML = alerts.map(alert => {
+                const distance = alert.distance_miles != null ? `${alert.distance_miles} mi` : '—';
+                const speed = alert.speed_mph != null ? `${alert.speed_mph} mph` : '—';
+                return `
+                    <tr>
+                        <td>
+                            <div>${alert.created_at || 'Unknown'}</div>
+                            ${alert.details ? `<div style="color:#6b7280; font-size: 12px; margin-top:4px;">${alert.details.replace(/\n/g, '<br>')}</div>` : ''}
+                        </td>
+                        <td>${alert.email || 'Unknown'}</td>
+                        <td>${formatTravelLocation(alert.from || {})}</td>
+                        <td>${formatTravelLocation(alert.to || {})}</td>
+                        <td>${distance}${alert.delta_minutes != null ? `<div style="color:#6b7280; font-size: 12px;">Δ ${alert.delta_minutes} min</div>` : ''}</td>
+                        <td>${speed}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function setTravelAlerts(alerts) {
+            travelAlertsData = Array.isArray(alerts) ? alerts : [];
+            updateTravelMap(travelAlertsData);
+            renderTravelModal(travelAlertsData);
+        }
+
+        function openTravelModal() {
+            const modal = document.getElementById('travel-modal');
+            if (!modal) return;
+            renderTravelModal(travelAlertsData);
+            modal.classList.add('show');
+        }
+
+        function closeTravelModal() {
+            const modal = document.getElementById('travel-modal');
+            if (!modal) return;
+            modal.classList.remove('show');
         }
 
         function renderLoginTable(logins) {
@@ -615,6 +811,30 @@
             }
         });
 
+        const travelCard = document.getElementById('card-impossible-travel');
+        const travelModalClose = document.getElementById('travel-modal-close');
+        const travelModalBackdrop = document.getElementById('travel-modal-backdrop');
+
+        if (travelCard) {
+            travelCard.addEventListener('click', () => {
+                openTravelModal();
+            });
+        }
+
+        [travelModalClose, travelModalBackdrop].forEach(el => {
+            if (el) {
+                el.addEventListener('click', () => {
+                    closeTravelModal();
+                });
+            }
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closeTravelModal();
+            }
+        });
+ 
         // Initial load
         loadDashboard();
         setInterval(loadDashboard, refreshInterval);

@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -31,13 +31,14 @@ alerts_service = build('alertcenter', 'v1beta1', credentials=delegated_creds)
 def main_loop():
     print(f"[+] MCP Workspace Agent started for {CONFIG['domain']}")
     print(f"[+] Polling every {POLL_INTERVAL/60:.0f} minutes...")
-    last = datetime.utcnow() - timedelta(seconds=POLL_INTERVAL)
+    last = datetime.now(timezone.utc) - timedelta(seconds=POLL_INTERVAL)
 
     while True:
-        start_time = last.isoformat() + 'Z'
-        now = datetime.utcnow()
+        start_time = last.isoformat().replace('+00:00', 'Z')
+        now = datetime.now(timezone.utc)
+        now_str = now.isoformat().replace('+00:00', 'Z')
         try:
-            print(f"[DEBUG] Querying events from {start_time} to {now.isoformat()}Z")
+            print(f"[DEBUG] Querying events from {start_time} to {now_str}")
             
             # Fetch Google security alerts
             sec_alerts = fetch_security_alerts(alerts_service, CONFIG)
@@ -57,7 +58,7 @@ def main_loop():
                 print(f"[DEBUG] First login event sample:")
                 print(json.dumps(logins[0], indent=2))
             
-            for item in logins:
+            for item in reversed(logins):
                 try:
                     process_login_event(item, sec_alerts_dict, CONFIG)
                 except Exception as e:
@@ -78,8 +79,14 @@ def main_loop():
                 print(f"[DEBUG] First drive event sample:")
                 print(json.dumps(drives[0], indent=2))
             
-            for item in drives:
-                process_drive_event(item, CONFIG)
+            for item in reversed(drives):
+                try:
+                    process_drive_event(item, CONFIG)
+                except Exception as e:
+                    print(f"[!] Error processing drive event: {type(e).__name__}: {e}")
+                    print(f"[!] Event: {json.dumps(item, indent=2)[:500]}")
+                    import traceback
+                    traceback.print_exc()
 
         except Exception as e:
             print(f"[!] API error: {e}")
