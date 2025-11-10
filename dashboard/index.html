@@ -92,6 +92,25 @@
             margin-bottom: 20px;
             color: #ffffff;
         }
+        .table-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .table-filters input {
+            background: #12162f;
+            border: 1px solid #2a2f4a;
+            border-radius: 4px;
+            padding: 10px 12px;
+            color: #ffffff;
+            font-size: 14px;
+        }
+
+        .table-filters input::placeholder {
+            color: #6b7280;
+        }
 
         .map-container {
             height: 300px;
@@ -254,6 +273,11 @@
                 <!-- Login Attempts Table -->
                 <div class="panel" style="margin-top: 20px;">
                     <div class="panel-title">Login Attempts (Last 100)</div>
+                    <div class="table-filters">
+                        <input type="text" id="filter-user" placeholder="Filter by user">
+                        <input type="text" id="filter-ip" placeholder="Filter by IP address">
+                        <input type="text" id="filter-status" placeholder="Filter by status (success/failed)">
+                    </div>
                     <div class="table-container">
                         <table id="login-table">
                             <thead>
@@ -318,6 +342,8 @@
 
         // Dashboard refresh interval (will be set from API)
         let refreshInterval = 30000; // Default 30 seconds
+        let allLoginData = [];
+        const loginFilterInputs = {};
 
         // Load dashboard data
         async function loadDashboard() {
@@ -340,7 +366,7 @@
                 updateTravelMap(data.impossible_travel || []);
 
                 // Update login attempts table
-                updateLoginTable(data.recent_logins || []);
+                setLoginData(data.recent_logins || []);
 
                 // Update security alerts chart
                 updateSecurityChart(data.security_alerts_by_type || {});
@@ -406,16 +432,16 @@
             });
         }
 
-        function updateLoginTable(logins) {
+        function renderLoginTable(logins) {
             const tbody = document.getElementById('login-tbody');
-            if (logins.length === 0) {
+            if (!Array.isArray(logins) || logins.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" class="loading">No login attempts</td></tr>';
                 return;
             }
 
             tbody.innerHTML = logins.map(login => {
                 const statusClass = login.success ? 'status-success' : 'status-failure';
-                const statusText = login.success ? 'Success' : 'Failed';
+                const statusText = login.status || (login.success ? 'Success' : 'Failed');
                 return `
                 <tr>
                     <td>${login.time}</td>
@@ -427,6 +453,31 @@
             }).join('');
         }
 
+        function applyLoginFilters() {
+            if (!Array.isArray(allLoginData)) {
+                return renderLoginTable([]);
+            }
+
+            const userTerm = (loginFilterInputs.user?.value || '').trim().toLowerCase();
+            const ipTerm = (loginFilterInputs.ip?.value || '').trim().toLowerCase();
+            const statusTerm = (loginFilterInputs.status?.value || '').trim().toLowerCase();
+
+            const filtered = allLoginData.filter(login => {
+                const userMatches = !userTerm || (login.user || '').toLowerCase().includes(userTerm);
+                const ipMatches = !ipTerm || (login.ip || '').toLowerCase().includes(ipTerm);
+                const statusText = (login.status || (login.success ? 'Success' : 'Failed')).toLowerCase();
+                const statusMatches = !statusTerm || statusText.includes(statusTerm);
+                return userMatches && ipMatches && statusMatches;
+            });
+
+            renderLoginTable(filtered);
+        }
+
+        function setLoginData(logins) {
+            allLoginData = Array.isArray(logins) ? logins : [];
+            applyLoginFilters();
+        }
+ 
         function updateSecurityChart(data) {
             const ctx = document.getElementById('security-chart').getContext('2d');
             
@@ -551,11 +602,22 @@
             `).join('');
         }
 
-        // Load dashboard on page load
-        loadDashboard().then(() => {
-            // Auto-refresh based on config
-            setInterval(loadDashboard, refreshInterval);
+        // Initialize login filters
+        loginFilterInputs.user = document.getElementById('filter-user');
+        loginFilterInputs.ip = document.getElementById('filter-ip');
+        loginFilterInputs.status = document.getElementById('filter-status');
+
+        Object.values(loginFilterInputs).forEach(input => {
+            if (input) {
+                input.addEventListener('input', () => {
+                    applyLoginFilters();
+                });
+            }
         });
+
+        // Initial load
+        loadDashboard();
+        setInterval(loadDashboard, refreshInterval);
     </script>
 </body>
 </html>

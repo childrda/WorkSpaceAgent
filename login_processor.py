@@ -8,6 +8,21 @@ from db_helpers import insert_security_alert, insert_user_login, get_last_login_
 last_login_cache = {}
 
 
+def _extract_parameter_value(param):
+    """Return the most useful value from a Google Workspace event parameter."""
+    if not isinstance(param, dict):
+        return None
+
+    for key in ("value", "stringValue", "intValue", "boolValue"):
+        if param.get(key) is not None:
+            return param[key]
+
+    if param.get("multiValue"):
+        return param["multiValue"]
+
+    return None
+
+
 def process_login_event(item, sec_alerts_dict, CONFIG):
     """
     Process a Google Workspace login event.
@@ -15,8 +30,24 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
     sec_alerts_dict: dict mapping user email to alert info (from fetch_security_alerts)
     """
     try:
-        params = {p['name']: p.get('value') for p in item.get('parameters', [])}
-        ip = params.get('ipAddress')
+        params = {}
+        for param in item.get('parameters', []):
+            name = param.get('name')
+            if name:
+                params[name] = _extract_parameter_value(param)
+
+        for event in item.get('events', []):
+            for param in event.get('parameters', []):
+                name = param.get('name')
+                if name and name not in params:
+                    params[name] = _extract_parameter_value(param)
+
+        ip = (
+            params.get('ipAddress')
+            or item.get('ipAddress')
+            or item.get('actor', {}).get('callerIpAddress')
+            or item.get('id', {}).get('callerIpAddress')
+        )
         actor = item.get('actor', {}).get('email')
         event_name = item.get('name', '')
         
@@ -26,6 +57,16 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
         if 'failure' in event_name.lower() or 'denied' in event_name.lower() or 'blocked' in event_name.lower():
             login_success = False
         
+        if CONFIG.get('log_level', 'INFO').upper() == 'DEBUG':
+            print("[DEBUG] Full login event from Google Workspace:")
+            print(json.dumps(item, indent=2))
+            print(f"[DEBUG] Parsed parameters: {json.dumps(params, indent=2)}")
+
+        if not ip:
+            print(f"[!] Login event missing IP address for {actor}. Event: {json.dumps(item, indent=2)[:300]}")
+        else:
+            ip = str(ip)
+
         if not actor:
             print(f"[!] Skipping login event - no actor email found. Event: {json.dumps(item, indent=2)[:200]}")
             return
@@ -41,16 +82,17 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
         return
 
     # Geolocate the IP
-    geo = ip_to_geo(ip, CONFIG['geo_db_path'])
+    geo = ip_to_geo(ip, CONFIG['geo_db_path']) if ip else {'ip': None}
+    ip_to_store = ip or geo.get('ip')
 
     # Alert if the IP lookup fails for an external address
     if geo.get('error') and geo['error'] not in ('private_ip', 'no_ip'):
-        send_email_alert(f"Geo lookup failed for {actor}", json.dumps(geo, indent=2))
+        send_email_alert(f"Geo lookup failed for {actor}", json.dumps(geo, indent=2), CONFIG)
 
     # Store login in database for historical tracking (store all logins, even without geo data)
     success = insert_user_login(
         actor,
-        ip,
+        ip_to_store,
         geo.get('latitude'),
         geo.get('longitude'),
         geo.get('country', 'Unknown'),
@@ -60,9 +102,9 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
         login_success
     )
     if not success:
-        print(f"[!] Failed to store login for {actor} at {timestamp}")
+        print(f"[!] Failed to store login for {actor} at {timestamp} (IP: {ip_to_store})")
     else:
-        print(f"[DEBUG] Stored login for {actor} - IP: {ip}, Location: {geo.get('city', 'Unknown')}, {geo.get('region', 'Unknown')}")
+        print(f"[DEBUG] Stored login for {actor} - IP: {ip_to_store}, Location: {geo.get('city', 'Unknown')}, {geo.get('region', 'Unknown')}")
 
     # Cross-reference: Is this user in a "new device" security alert?
     if actor in sec_alerts_dict:
@@ -107,7 +149,7 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
                         f"Login Time: {timestamp}\n"
                     )
                     subject = f"{CONFIG['alerts']['alert_subject_prefix']} New Device Login Outside Allowed States: {actor}"
-                    send_email_alert(subject, msg)
+                    send_email_alert(subject, msg, CONFIG)
                     insert_security_alert(actor, "new_device_outside_allowed_state", msg)
                 else:
                     # Still log the new device login even if in allowed state
@@ -133,7 +175,7 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
                         f"Login Time: {timestamp}\n"
                     )
                     subject = f"{CONFIG['alerts']['alert_subject_prefix']} New Device Login Outside Allowed States: {actor}"
-                    send_email_alert(subject, msg)
+                    send_email_alert(subject, msg, CONFIG)
                     insert_security_alert(actor, "new_device_outside_allowed_state", msg)
 
     # Impossible Travel Detection
@@ -155,7 +197,7 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
                     f"Current: {geo.get('city', 'Unknown')}, {geo.get('region', 'Unknown')}"
                 )
                 subject = f"{CONFIG['alerts']['alert_subject_prefix']} Impossible Travel Alert: {actor}"
-                send_email_alert(subject, msg)
+                send_email_alert(subject, msg, CONFIG)
                 insert_security_alert(actor, "impossible_travel", msg)
     else:
         # Try to load from database if not in cache
@@ -182,7 +224,7 @@ def process_login_event(item, sec_alerts_dict, CONFIG):
                     f"Current: {geo.get('city', 'Unknown')}, {geo.get('region', 'Unknown')}"
                 )
                 subject = f"{CONFIG['alerts']['alert_subject_prefix']} Impossible Travel Alert: {actor}"
-                send_email_alert(subject, msg)
+                send_email_alert(subject, msg, CONFIG)
                 insert_security_alert(actor, "impossible_travel", msg)
 
     # Cache latest login

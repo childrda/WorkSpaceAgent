@@ -102,7 +102,7 @@ def process_drive_event(item, CONFIG):
             f"Event Type: {event_name}\n"
         )
 
-        send_email_alert(subject, msg)
+        send_email_alert(subject, msg, CONFIG)
         insert_phishing_alert(
             actor,
             owner_domain,

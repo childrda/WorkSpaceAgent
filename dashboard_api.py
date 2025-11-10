@@ -8,12 +8,16 @@ Run with: python dashboard_api.py
 
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 from db_helpers import get_db_connection
 from mysql.connector import Error
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
 
 # Load environment and config
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +33,33 @@ except FileNotFoundError:
 
 app = Flask(__name__, static_folder='dashboard')
 CORS(app)  # Enable CORS for frontend
+
+DEFAULT_TZ_NAME = CONFIG.get('dashboard', {}).get('display_timezone', 'America/New_York')
+if ZoneInfo:
+    try:
+        DISPLAY_TIMEZONE = ZoneInfo(DEFAULT_TZ_NAME)
+    except Exception:
+        print(f"[!] Warning: Could not load timezone '{DEFAULT_TZ_NAME}'. Falling back to America/New_York")
+        DISPLAY_TIMEZONE = ZoneInfo('America/New_York') if ZoneInfo else None
+else:
+    print("[!] Warning: zoneinfo module unavailable. Login timestamps will display in UTC.")
+    DISPLAY_TIMEZONE = None
+
+
+def format_login_time(login_time):
+    """Return login time string converted to configured timezone."""
+    if not isinstance(login_time, datetime):
+        return str(login_time)
+
+    dt = login_time
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    if DISPLAY_TIMEZONE:
+        dt = dt.astimezone(DISPLAY_TIMEZONE)
+        return dt.strftime('%Y-%m-%d %I:%M:%S %p %Z')
+
+    return dt.strftime('%Y-%m-%d %H:%M:%S UTC')
 
 
 def get_dashboard_stats():
@@ -168,13 +199,19 @@ def get_recent_logins(limit=None):
         cursor.close()
         conn.close()
         
-        return [{
-            'time': login['login_time'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(login['login_time'], datetime) else str(login['login_time']),
-            'user': login['email'],
-            'ip': login['ip'] or 'N/A',
-            'location': f"{login['city'] or ''}, {login['region'] or ''}".strip(', '),
-            'success': bool(login.get('login_success', True))
-        } for login in logins]
+        results = []
+        for login in logins:
+            success_flag = bool(login.get('login_success', True))
+            results.append({
+                'time': format_login_time(login.get('login_time')),
+                'user': login.get('email') or 'Unknown',
+                'ip': login.get('ip') or 'N/A',
+                'location': f"{login.get('city') or ''}, {login.get('region') or ''}".strip(', '),
+                'success': success_flag,
+                'status': 'Success' if success_flag else 'Failed'
+            })
+
+        return results
     except Error as e:
         print(f"[!] Error getting recent logins: {e}")
         return []

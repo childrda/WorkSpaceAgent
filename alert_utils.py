@@ -3,15 +3,43 @@ import smtplib
 import json
 from email.mime.text import MIMEText
 
-def send_email_alert(subject, message):
+
+def _get_smtp_port():
+    port_value = (os.getenv('SMTP_PORT') or '').strip()
+    if not port_value:
+        return 587
+    try:
+        return int(port_value)
+    except ValueError:
+        print(f"[!] Invalid SMTP_PORT value '{port_value}'. Falling back to 587.")
+        return 587
+
+
+def send_email_alert(subject, message, config=None):
     """
     Send an email alert to the address defined in .env (ALERT_EMAIL).
     """
+    if config and not config.get('alerts', {}).get('enable_email', True):
+        return False
+
     SMTP_SERVER = os.getenv('SMTP_SERVER')
-    SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
+    SMTP_PORT = _get_smtp_port()
     SMTP_USERNAME = os.getenv('SMTP_USERNAME')
     SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')
     ALERT_EMAIL = os.getenv('ALERT_EMAIL')
+
+    missing_fields = [
+        name for name, value in {
+            'SMTP_SERVER': SMTP_SERVER,
+            'SMTP_USERNAME': SMTP_USERNAME,
+            'SMTP_PASSWORD': SMTP_PASSWORD,
+            'ALERT_EMAIL': ALERT_EMAIL,
+        }.items() if not value
+    ]
+
+    if missing_fields:
+        print(f"[!] Email alert not sent. Missing SMTP configuration values: {', '.join(missing_fields)}")
+        return False
 
     try:
         msg = MIMEText(message)
@@ -25,8 +53,10 @@ def send_email_alert(subject, message):
             server.send_message(msg)
 
         print(f"[+] Email alert sent: {subject}")
+        return True
     except Exception as e:
         print(f"[!] Failed to send email: {e}")
+        return False
 
 
 def fetch_security_alerts(alerts_service, CONFIG):

@@ -470,7 +470,7 @@ WantedBy=multi-user.target
 The dashboard displays:
 - **Top Metrics**: Login attempts, impossible travel alerts, security alerts, and phishing alerts
 - **Impossible Travel Map**: Visual representation of impossible travel alerts with location markers
-- **Login Attempts Table**: Recent login activity
+- **Login Attempts Table**: Recent login activity displayed in your configured timezone with per-column filters for user, IP address, and login status
 - **Security Alerts by Type**: Bar chart showing alert breakdown
 - **Phishing Alerts by Recipient**: Horizontal bar chart of phishing targets
 - **Phishing Alerts Table**: Recent phishing attempts
