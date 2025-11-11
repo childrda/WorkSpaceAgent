@@ -78,6 +78,8 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
     allowed_sender_domains = [d.lower() for d in gmail_cfg.get('allowed_sender_domains', [])]
     trusted_file_domains = [d.lower() for d in gmail_cfg.get('trusted_file_domains', [])]
     share_link_domains = [d.lower() for d in gmail_cfg.get('share_link_domains', [])]
+    urgency_keywords = [u.lower() for u in gmail_cfg.get('urgency_keywords', [])]
+    financial_keywords = [f.lower() for f in gmail_cfg.get('financial_keywords', [])]
 
     for message_id in message_ids:
         msg = gmail_service.users().messages().get(userId=mailbox, id=message_id, format='full').execute()
@@ -117,7 +119,9 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
         urls = _extract_urls(body_text or snippet)
         suspicious_reasons = set()
         share_links = set()
+        trusted_sender = sender_domain in allowed_sender_domains if sender_domain else False
 
+        share_link_detected = False
         # External share links
         for url in urls:
             parsed = urlparse(url)
@@ -128,16 +132,24 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
                 continue
             if any(sd in domain for sd in share_link_domains):
                 share_links.add(url)
-                suspicious_reasons.add(f"External file share link: {domain}")
+                share_link_detected = True
+                if sender_domain not in allowed_sender_domains:
+                    suspicious_reasons.add(f"External file share link: {domain}")
 
         display_lower = sender_display.lower() if sender_display else ''
+        high_risk_triggered = False
         if high_risk_names and any(term in display_lower for term in high_risk_names):
+            high_risk_triggered = True
             if sender_domain and sender_domain not in allowed_sender_domains:
                 suspicious_reasons.add(f"Display name '{sender_display}' matches high-risk role")
 
+        lookalike_detected = False
         if sender_domain and sender_domain not in allowed_sender_domains:
-            if 'lcps' in sender_domain and not any(sender_domain.endswith(dom) for dom in allowed_sender_domains):
-                suspicious_reasons.add(f"Sender domain looks similar to LCPS but is not trusted: {sender_domain}")
+            for allowed in allowed_sender_domains:
+                if allowed in sender_domain and sender_domain != allowed:
+                    suspicious_reasons.add(f"Sender domain looks similar to trusted domain: {sender_domain}")
+                    lookalike_detected = True
+                    break
 
         auth_lower = auth_results.lower()
         if auth_lower:
@@ -149,12 +161,39 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
                 suspicious_reasons.add('DMARC failure detected')
 
         combined_text = ' '.join(filter(None, [subject, body_text, snippet])).lower()
-        for term in high_risk_names:
-            if term and term in combined_text:
-                if sender_domain not in allowed_sender_domains:
-                    suspicious_reasons.add(f"High-risk keyword '{term}' found in message content")
+        if high_risk_names:
+            for term in high_risk_names:
+                if term and term in combined_text:
+                    high_risk_triggered = True
+                    if sender_domain not in allowed_sender_domains:
+                        suspicious_reasons.add(f"High-risk keyword '{term}' found in message content")
+        outside_org_detected = 'outside your organization' in combined_text
+
+        urgency_detected = any(term in combined_text for term in urgency_keywords)
+        financial_detected = any(term in combined_text for term in financial_keywords)
+        if urgency_detected and sender_domain not in allowed_sender_domains:
+            suspicious_reasons.add("Urgent language detected from external sender")
+        if financial_detected and sender_domain not in allowed_sender_domains:
+            suspicious_reasons.add("Financial language detected from external sender")
 
         if not suspicious_reasons and not share_links:
+            continue
+
+        should_flag = False
+        if share_link_detected and sender_domain not in allowed_sender_domains:
+            should_flag = True
+        elif share_link_detected and high_risk_triggered:
+            should_flag = True
+        elif outside_org_detected and sender_domain not in allowed_sender_domains:
+            should_flag = True
+        elif outside_org_detected and high_risk_triggered:
+            should_flag = True
+        elif lookalike_detected and (financial_detected or urgency_detected or high_risk_triggered):
+            should_flag = True
+        elif (urgency_detected or financial_detected) and sender_domain not in allowed_sender_domains:
+            should_flag = True
+
+        if not should_flag:
             continue
 
         message_time = internal_ts

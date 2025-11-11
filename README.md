@@ -15,7 +15,7 @@ A Python-based security monitoring agent that continuously monitors Google Works
 - **Impersonation Detection**: Flags attempts to impersonate leadership roles (superintendent, principal, etc.)
 - **External User Monitoring**: Tracks suspicious activity from external domains
 - **Combined Risk Analysis**: Detects high-risk combinations of public sharing and impersonation
-- **Inbound Email Scanning (Gmail)**: Parses recent messages to flag suspicious links, spoofed leadership emails, and authentication failures
+- **Inbound Email Scanning (Gmail)**: Parses recent messages to flag suspicious links, spoofed leadership emails, urgency/financial language, and authentication failures
 
 ### 📊 Data Storage
 - MySQL database for persistent storage of:
@@ -415,9 +415,10 @@ The agent uses three main tables:
 3. **Create the optional database tables** by rerunning `schema.sql` (or manually creating `drive_events` and `phishing_emails` as documented in `SCHEMA_UPDATE.md`).
 4. **Update `config.json`** with the `gmail` block (see `config.json.example`) and set:
    - `mailbox`: the delegated mailbox to scan (e.g., `security-alerts@yourdomain.com`)
-   - `allowed_sender_domains`: trusted internal domains (messages from these domains are not flagged by impersonation rules)
+   - `allowed_sender_domains`: trusted internal domains (messages from these domains are not flagged by impersonation rules unless other red flags appear)
    - `trusted_file_domains`: file-sharing domains you trust (e.g., `yourdomain.com`)
    - `high_risk_display_names`: names/roles you want to monitor for spoofing (superintendent, CFO, principal, etc.)
+   - `urgency_keywords`, `financial_keywords`: phrases that indicate urgency or financial lures (gift cards, payroll, wire transfer)
 5. **Restart the agent** so the new configuration and scope take effect.
 
 The agent stores suspicious Gmail messages in the `phishing_emails` table and issues email alerts (if enabled) summarising the reasons (external share links, spoofed display names, SPF/DKIM/DMARC failures, etc.).

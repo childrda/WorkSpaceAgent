@@ -66,6 +66,23 @@
       "principal",
       "finance director"
     ],
+    "urgency_keywords": [
+      "urgent",
+      "immediate action",
+      "wire transfer",
+      "gift card",
+      "payroll",
+      "w-2",
+      "bank account"
+    ],
+    "financial_keywords": [
+      "wire",
+      "invoice",
+      "payment",
+      "gift card",
+      "bitcoin",
+      "bank details"
+    ],
     "share_link_domains": [
       "docs.google.com",
       "drive.google.com",
