@@ -16,7 +16,7 @@ A Python-based security monitoring agent that continuously monitors Google Works
 - **External User Monitoring**: Tracks suspicious activity from external domains
 - **Combined Risk Analysis**: Detects high-risk combinations of public sharing and impersonation
 - **Inbound Email Scanning (Gmail)**: Parses recent messages to flag suspicious links, spoofed leadership emails, urgency/financial language, and authentication failures
-- **AI-Assisted Phishing Classification**: Sends message metadata to an external classifier (if configured) and combines AI confidence with rule-based scores for final decisions
+- **AI-Assisted Phishing Classification**: Sends message metadata to an external classifier (if configured) and combines AI confidence with rule-based scores for final decisions. When `log_level` is set to `DEBUG`, the agent logs the exact payload and response from the AI service for troubleshooting.
 
 ### 📊 Data Storage
 - MySQL database for persistent storage of:

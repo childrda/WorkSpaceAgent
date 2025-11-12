@@ -32,7 +32,7 @@ KEYWORD_WEIGHTS = {
 }
 
 
-def classify_with_ai(subject: str, sender: str, body: str, urls: List[str]) -> dict:
+def classify_with_ai(subject: str, sender: str, body: str, urls: List[str], debug: bool=False) -> dict:
     url = os.getenv('AI_CLASSIFIER_URL')
     token = os.getenv('AI_CLASSIFIER_TOKEN')
     if not url or not token:
@@ -51,10 +51,14 @@ def classify_with_ai(subject: str, sender: str, body: str, urls: List[str]) -> d
 
     try:
         start = time.time()
+        if debug:
+            print(f"[DEBUG] AI request payload: {json.dumps(payload)}")
         response = requests.post(url, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
         result = response.json() or {}
         result.setdefault("latency_ms", int((time.time() - start) * 1000))
+        if debug:
+            print(f"[DEBUG] AI response: {json.dumps(result)}")
         return result
     except Exception as exc:
         print(f"[!] AI classification error: {exc}")
@@ -237,7 +241,13 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
             suspicious_reasons.add('DMARC failure detected')
             rule_score += 3
 
-        ai_result = classify_with_ai(subject, sender_email, body_text or snippet, list(share_links))
+        ai_result = classify_with_ai(
+            subject,
+            sender_email,
+            body_text or snippet,
+            list(share_links),
+            debug=config.get('log_level', '').upper() == 'DEBUG'
+        )
         label = ai_result.get('label', 'unknown')
         LABEL_MAP = {
             "phishing": "phishing",
