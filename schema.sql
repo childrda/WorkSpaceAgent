@@ -75,6 +75,10 @@ CREATE TABLE IF NOT EXISTS phishing_emails (
   auth_results TEXT,
   snippet TEXT,
   message_time DATETIME,
+  ai_label VARCHAR(64),
+  ai_confidence FLOAT,
+  rule_score INT,
+  phishing_confidence FLOAT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_sender_email (sender_email),
   INDEX idx_message_time (message_time)

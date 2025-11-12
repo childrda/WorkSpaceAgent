@@ -16,6 +16,7 @@ A Python-based security monitoring agent that continuously monitors Google Works
 - **External User Monitoring**: Tracks suspicious activity from external domains
 - **Combined Risk Analysis**: Detects high-risk combinations of public sharing and impersonation
 - **Inbound Email Scanning (Gmail)**: Parses recent messages to flag suspicious links, spoofed leadership emails, urgency/financial language, and authentication failures
+- **AI-Assisted Phishing Classification**: Sends message metadata to an external classifier (if configured) and combines AI confidence with rule-based scores for final decisions
 
 ### 📊 Data Storage
 - MySQL database for persistent storage of:
@@ -391,12 +392,13 @@ The script will:
 The service account requires the following OAuth scopes:
 - `https://www.googleapis.com/auth/admin.reports.audit.readonly` - Read audit logs
 - `https://www.googleapis.com/auth/apps.alerts` - Access Alert Center
-- `https://www.googleapis.com/auth/gmail.readonly` - Read Gmail messages for phishing detection
+- AI classifier endpoint (optional): provide `AI_CLASSIFIER_URL`, `AI_CLASSIFIER_TOKEN`, and optionally `AI_MIN_CONFIDENCE`
+- AI classifier service (if using the optional AI integration)
 
 The service account must have domain-wide delegation enabled and be granted access to:
 - Admin SDK (Reports API)
 - Alert Center API
-- Gmail API (read-only)
+- AI classifier service (if using the optional AI integration)
 
 ## Database Schema
 
@@ -406,7 +408,7 @@ The agent uses three main tables:
 - **security_alerts**: Stores security alerts (impossible travel, new device, etc.)
 - **phishing_alerts**: Stores phishing and impersonation alerts from Drive
 - **drive_events** *(optional)*: Raw Google Drive events when `log_all_drive_events` is enabled
-- **phishing_emails** *(optional)*: Suspicious Gmail messages detected by the phishing scanner
+- **phishing_emails** *(optional)*: Suspicious Gmail messages detected by the phishing scanner (including AI label and confidence metadata)
 
 ### Gmail Phishing Detection (Optional)
 
@@ -419,6 +421,8 @@ The agent uses three main tables:
    - `trusted_file_domains`: file-sharing domains you trust (e.g., `yourdomain.com`)
    - `high_risk_display_names`: names/roles you want to monitor for spoofing (superintendent, CFO, principal, etc.)
    - `urgency_keywords`, `financial_keywords`: phrases that indicate urgency or financial lures (gift cards, payroll, wire transfer)
-5. **Restart the agent** so the new configuration and scope take effect.
+   - (Optional) `ignore_senders`: addresses that should never trigger alerts (e.g., your alert mailbox)
+5. **Optional AI integration:** set the environment variables `AI_CLASSIFIER_URL`, `AI_CLASSIFIER_TOKEN`, and (optional) `AI_MIN_CONFIDENCE` on the server. If these are not set, the agent automatically falls back to rule-based detection only.
+6. **Restart the agent** so the new configuration and scope take effect.
 
 The agent stores suspicious Gmail messages in the `phishing_emails` table and issues email alerts (if enabled) summarising the reasons (external share links, spoofed display names, SPF/DKIM/DMARC failures, etc.).

@@ -305,10 +305,10 @@ def create_archive_dump(archive_path, retention_days):
             rows = cursor.fetchall()
             if rows:
                 f.write("-- phishing_emails archive\n")
-                f.write("INSERT INTO phishing_emails (id, message_id, subject, sender_email, sender_display, sender_domain, recipients, suspicious_reasons, share_links, auth_results, snippet, message_time, created_at) VALUES\n")
+                f.write("INSERT INTO phishing_emails (id, message_id, subject, sender_email, sender_display, sender_domain, recipients, suspicious_reasons, share_links, auth_results, snippet, message_time, ai_label, ai_confidence, rule_score, phishing_confidence, created_at) VALUES\n")
                 values = []
                 for row in rows:
-                    val_str = f"({row[0]}, {escape_sql(row[1])}, {escape_sql(row[2])}, {escape_sql(row[3])}, {escape_sql(row[4])}, {escape_sql(row[5])}, {escape_sql(row[6])}, {escape_sql(row[7])}, {escape_sql(row[8])}, {escape_sql(row[9])}, {escape_sql(row[10])}, {escape_sql(row[11])}, {escape_sql(row[12])})"
+                    val_str = f"({row[0]}, {escape_sql(row[1])}, {escape_sql(row[2])}, {escape_sql(row[3])}, {escape_sql(row[4])}, {escape_sql(row[5])}, {escape_sql(row[6])}, {escape_sql(row[7])}, {escape_sql(row[8])}, {escape_sql(row[9])}, {escape_sql(row[10])}, {escape_sql(row[11])}, {escape_sql(row[12])}, {escape_sql(row[13])}, {escape_sql(row[14])}, {escape_sql(row[15])}, {escape_sql(row[16])})"
                     values.append(val_str)
                 f.write(",\n".join(values) + ";\n\n")
             
@@ -360,7 +360,8 @@ def insert_drive_event(actor_email, owner_domain, owner_display_name, doc_id,
 
 def insert_phishing_email(message_id, subject, sender_email, sender_display,
                           sender_domain, recipients, reasons, share_links,
-                          auth_results, snippet, message_time):
+                          auth_results, snippet, message_time,
+                          ai_label, ai_confidence, rule_score, phishing_confidence):
     conn = get_db_connection()
     if not conn:
         return False
@@ -371,14 +372,18 @@ def insert_phishing_email(message_id, subject, sender_email, sender_display,
             """INSERT INTO phishing_emails
                    (message_id, subject, sender_email, sender_display, sender_domain,
                     recipients, suspicious_reasons, share_links, auth_results, snippet,
-                    message_time)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    message_time, ai_label, ai_confidence, rule_score, phishing_confidence)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON DUPLICATE KEY UPDATE
                      suspicious_reasons = VALUES(suspicious_reasons),
                      share_links = VALUES(share_links),
                      auth_results = VALUES(auth_results),
                      snippet = VALUES(snippet),
-                     message_time = VALUES(message_time)
+                     message_time = VALUES(message_time),
+                     ai_label = VALUES(ai_label),
+                     ai_confidence = VALUES(ai_confidence),
+                     rule_score = VALUES(rule_score),
+                     phishing_confidence = VALUES(phishing_confidence)
             """,
             (
                 message_id,
@@ -391,7 +396,11 @@ def insert_phishing_email(message_id, subject, sender_email, sender_display,
                 json.dumps(share_links or []),
                 auth_results,
                 snippet,
-                message_time
+                message_time,
+                ai_label,
+                ai_confidence,
+                rule_score,
+                phishing_confidence
             )
         )
         inserted = cursor.rowcount == 1

@@ -4,16 +4,61 @@ import base64
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 from email.utils import parseaddr
 from html import unescape
 from typing import List, Tuple
 from urllib.parse import urlparse
 
+import requests
+
 from alert_utils import send_email_alert
 from db_helpers import insert_phishing_email
 
 URL_REGEX = re.compile(r"https?://[^\s<>\"]+")
+
+KEYWORD_WEIGHTS = {
+    "urgent": 2,
+    "immediately": 2,
+    "password": 3,
+    "verify": 3,
+    "account": 2,
+    "invoice": 3,
+    "bank": 3,
+    "click": 2,
+    "secure": 2,
+    "transfer": 3,
+}
+
+
+def classify_with_ai(subject: str, sender: str, body: str, urls: List[str]) -> dict:
+    url = os.getenv('AI_CLASSIFIER_URL')
+    token = os.getenv('AI_CLASSIFIER_TOKEN')
+    if not url or not token:
+        return {"label": "unknown", "confidence": 0.0}
+
+    payload = {
+        "subject": subject or "",
+        "sender": sender or "",
+        "body": body or "",
+        "urls": urls or [],
+    }
+    headers = {
+        "X-Auth-Token": token,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        start = time.time()
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        result = response.json() or {}
+        result.setdefault("latency_ms", int((time.time() - start) * 1000))
+        return result
+    except Exception as exc:
+        print(f"[!] AI classification error: {exc}")
+        return {"label": "unknown", "confidence": 0.0}
 
 
 def _decode_part(part):
@@ -80,6 +125,7 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
     share_link_domains = [d.lower() for d in gmail_cfg.get('share_link_domains', [])]
     urgency_keywords = [u.lower() for u in gmail_cfg.get('urgency_keywords', [])]
     financial_keywords = [f.lower() for f in gmail_cfg.get('financial_keywords', [])]
+    ai_min_confidence = float(os.getenv('AI_MIN_CONFIDENCE', 0.7))
 
     for message_id in message_ids:
         msg = gmail_service.users().messages().get(userId=mailbox, id=message_id, format='full').execute()
@@ -119,9 +165,10 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
         urls = _extract_urls(body_text or snippet)
         suspicious_reasons = set()
         share_links = set()
-        trusted_sender = sender_domain in allowed_sender_domains if sender_domain else False
-
         share_link_detected = False
+        high_risk_triggered = False
+        lookalike_detected = False
+
         # External share links
         for url in urls:
             parsed = urlparse(url)
@@ -137,13 +184,11 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
                     suspicious_reasons.add(f"External file share link: {domain}")
 
         display_lower = sender_display.lower() if sender_display else ''
-        high_risk_triggered = False
         if high_risk_names and any(term in display_lower for term in high_risk_names):
             high_risk_triggered = True
             if sender_domain and sender_domain not in allowed_sender_domains:
                 suspicious_reasons.add(f"Display name '{sender_display}' matches high-risk role")
 
-        lookalike_detected = False
         if sender_domain and sender_domain not in allowed_sender_domains:
             for allowed in allowed_sender_domains:
                 if allowed in sender_domain and sender_domain != allowed:
@@ -152,48 +197,81 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
                     break
 
         auth_lower = auth_results.lower()
-        if auth_lower:
-            if 'spf=fail' in auth_lower or 'spf=softfail' in auth_lower:
-                suspicious_reasons.add('SPF failure detected')
-            if 'dkim=fail' in auth_lower:
-                suspicious_reasons.add('DKIM failure detected')
-            if 'dmarc=fail' in auth_lower:
-                suspicious_reasons.add('DMARC failure detected')
+        keyword_score = 0
+        lower_content = f"{subject} {body_text}".lower()
+        for keyword, weight in KEYWORD_WEIGHTS.items():
+            if keyword in lower_content:
+                keyword_score += weight
 
-        combined_text = ' '.join(filter(None, [subject, body_text, snippet])).lower()
         if high_risk_names:
             for term in high_risk_names:
-                if term and term in combined_text:
+                if term and term in lower_content:
                     high_risk_triggered = True
                     if sender_domain not in allowed_sender_domains:
                         suspicious_reasons.add(f"High-risk keyword '{term}' found in message content")
-        outside_org_detected = 'outside your organization' in combined_text
 
-        urgency_detected = any(term in combined_text for term in urgency_keywords)
-        financial_detected = any(term in combined_text for term in financial_keywords)
+        outside_org_detected = 'outside your organization' in lower_content
+        urgency_detected = any(term in lower_content for term in urgency_keywords)
+        financial_detected = any(term in lower_content for term in financial_keywords)
         if urgency_detected and sender_domain not in allowed_sender_domains:
             suspicious_reasons.add("Urgent language detected from external sender")
         if financial_detected and sender_domain not in allowed_sender_domains:
             suspicious_reasons.add("Financial language detected from external sender")
 
-        if not suspicious_reasons and not share_links:
-            continue
+        spf = re.search(r"spf=(\w+)", auth_lower)
+        dkim = re.search(r"dkim=(\w+)", auth_lower)
+        dmarc = re.search(r"dmarc=(\w+)", auth_lower)
+        spf_fail = spf and spf.group(1) in ("fail", "softfail")
+        dkim_fail = dkim and dkim.group(1) == "fail"
+        dmarc_fail = dmarc and dmarc.group(1) == "fail"
+
+        rule_score = keyword_score
+        if spf_fail:
+            suspicious_reasons.add('SPF failure detected')
+            rule_score += 2
+        if dkim_fail:
+            suspicious_reasons.add('DKIM failure detected')
+            rule_score += 2
+        if dmarc_fail:
+            suspicious_reasons.add('DMARC failure detected')
+            rule_score += 3
+
+        ai_result = classify_with_ai(subject, sender_email, body_text or snippet, list(share_links))
+        label = ai_result.get('label', 'unknown')
+        ai_confidence = float(ai_result.get('confidence', 0.0) or 0.0)
+        ai_model = ai_result.get('model', 'unknown')
+        ai_latency = ai_result.get('latency_ms', 0)
+
+        ai_flagged = False
+        reason_ai = ""
+        if label in ("phishing", "potential_phishing"):
+            if ai_confidence >= ai_min_confidence:
+                ai_flagged = True
+                reason_ai = f"AI classified as {label} ({ai_confidence:.2f})"
+        elif label in ("safe", "marketing"):
+            reason_ai = f"AI classified as {label} ({ai_confidence:.2f})"
+        else:
+            reason_ai = f"AI returned {label} ({ai_confidence:.2f})"
+
+        if reason_ai:
+            suspicious_reasons.add(reason_ai)
+
+        final_confidence = round((ai_confidence * 0.7) + ((rule_score / 10) * 0.3), 2)
 
         should_flag = False
-        if share_link_detected and sender_domain not in allowed_sender_domains:
-            should_flag = True
-        elif share_link_detected and high_risk_triggered:
-            should_flag = True
-        elif outside_org_detected and sender_domain not in allowed_sender_domains:
-            should_flag = True
-        elif outside_org_detected and high_risk_triggered:
-            should_flag = True
-        elif lookalike_detected and (financial_detected or urgency_detected or high_risk_triggered):
-            should_flag = True
-        elif (urgency_detected or financial_detected) and sender_domain not in allowed_sender_domains:
-            should_flag = True
+        if label in ("safe", "marketing") and not ai_flagged:
+            should_flag = False
+        else:
+            if ai_flagged:
+                should_flag = True
+            elif final_confidence > 0.75:
+                should_flag = True
+            elif spf_fail or dkim_fail or dmarc_fail:
+                should_flag = True
 
         if not should_flag:
+            if config.get('log_level', '').upper() == 'DEBUG':
+                print(f"[DEBUG] Skipping email {message_id} - label={label}, ai_conf={ai_confidence:.2f}, score={rule_score}")
             continue
 
         message_time = internal_ts
@@ -211,7 +289,11 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
             share_links=share_links_list,
             auth_results=auth_results,
             snippet=snippet,
-            message_time=message_time
+            message_time=message_time,
+            ai_label=label,
+            ai_confidence=ai_confidence,
+            rule_score=rule_score,
+            phishing_confidence=final_confidence
         )
 
         if not inserted:
@@ -219,7 +301,12 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
 
         flagged += 1
         if config.get('log_level', '').upper() == 'DEBUG':
-            print(f"[DEBUG] Phishing email stored: {subject} ({message_id})")
+            print(
+                f"[DEBUG] Phishing email stored: {subject} ({message_id})"
+                f" | [AI] label={label} conf={ai_confidence:.2f} model={ai_model}"
+                f" | [Rules] {rule_score} pts | SPF fail={spf_fail} | DKIM fail={dkim_fail} | DMARC fail={dmarc_fail}"
+                f" | Combined={final_confidence:.2f} | Latency={ai_latency}ms"
+            )
 
         reasons_text = '\n'.join(f"  - {reason}" for reason in reasons_list) if reasons_list else '  - None'
         links_text = '\n'.join(f"  - {link}" for link in share_links_list) if share_links_list else '  - None'
@@ -231,6 +318,9 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
             f"Time: {message_time.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
             f"Reasons:\n{reasons_text}\n"
             f"Links:\n{links_text}\n"
+            f"AI Confidence: {ai_confidence:.2f}\n"
+            f"Rule Score: {rule_score}\n"
+            f"Combined Confidence: {final_confidence:.2f}\n"
         )
         send_email_alert(
             f"{config['alerts']['alert_subject_prefix']} Potential Phishing Email: {subject}",
