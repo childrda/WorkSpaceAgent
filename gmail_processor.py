@@ -14,11 +14,11 @@ from urllib.parse import urlparse
 import requests
 
 from alert_utils import send_email_alert
-from db_helpers import insert_phishing_email
+from db_helpers import insert_phishing_email, insert_ai_training_sample
 
 URL_REGEX = re.compile(r"https?://[^\s<>\"]+")
 
-KEYWORD_WEIGHTS = {
+DEFAULT_KEYWORD_WEIGHTS = {
     "urgent": 2,
     "immediately": 2,
     "password": 3,
@@ -29,6 +29,12 @@ KEYWORD_WEIGHTS = {
     "click": 2,
     "secure": 2,
     "transfer": 3,
+}
+
+DEFAULT_AUTH_WEIGHTS = {
+    "spf_fail": 2,
+    "dkim_fail": 2,
+    "dmarc_fail": 3,
 }
 
 
@@ -132,6 +138,11 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
     ai_min_confidence = float(os.getenv('AI_MIN_CONFIDENCE', 0.7))
     combined_threshold = float(config.get('phishing_detection', {}).get('combined_confidence_threshold', 0.75))
 
+    keyword_weights_cfg = config.get('phishing_detection', {}).get('keyword_weights', {})
+    keyword_weights = {**DEFAULT_KEYWORD_WEIGHTS, **{k: int(v) for k, v in keyword_weights_cfg.items()}}
+    auth_weights_cfg = config.get('phishing_detection', {}).get('auth_weights', {})
+    auth_weights = {**DEFAULT_AUTH_WEIGHTS, **{k: int(v) for k, v in auth_weights_cfg.items()}}
+
     for message_id in message_ids:
         msg = gmail_service.users().messages().get(userId=mailbox, id=message_id, format='full').execute()
         internal_ts = datetime.fromtimestamp(int(msg.get('internalDate', 0)) / 1000, tz=timezone.utc)
@@ -204,7 +215,7 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
         auth_lower = auth_results.lower()
         keyword_score = 0
         lower_content = f"{subject} {body_text}".lower()
-        for keyword, weight in KEYWORD_WEIGHTS.items():
+        for keyword, weight in keyword_weights.items():
             if keyword in lower_content:
                 keyword_score += weight
 
@@ -233,13 +244,13 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
         rule_score = keyword_score
         if spf_fail:
             suspicious_reasons.add('SPF failure detected')
-            rule_score += 2
+            rule_score += auth_weights.get('spf_fail', DEFAULT_AUTH_WEIGHTS['spf_fail'])
         if dkim_fail:
             suspicious_reasons.add('DKIM failure detected')
-            rule_score += 2
+            rule_score += auth_weights.get('dkim_fail', DEFAULT_AUTH_WEIGHTS['dkim_fail'])
         if dmarc_fail:
             suspicious_reasons.add('DMARC failure detected')
-            rule_score += 3
+            rule_score += auth_weights.get('dmarc_fail', DEFAULT_AUTH_WEIGHTS['dmarc_fail'])
 
         ai_result = classify_with_ai(
             subject,
@@ -248,6 +259,22 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
             list(share_links),
             debug=config.get('log_level', '').upper() == 'DEBUG'
         )
+        if config.get('phishing_detection', {}).get('train_ai'):
+            insert_ai_training_sample(
+                message_id,
+                subject,
+                sender_email,
+                sender_domain,
+                body_text or snippet,
+                list(share_links),
+                {
+                    "subject": subject or "",
+                    "sender": sender_email,
+                    "body": body_text or snippet or "",
+                    "urls": list(share_links)
+                },
+                ai_result
+            )
         label = ai_result.get('label', 'unknown')
         LABEL_MAP = {
             "phishing": "phishing",

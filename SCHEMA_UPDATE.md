@@ -83,6 +83,21 @@ CREATE TABLE IF NOT EXISTS phishing_emails (
   INDEX idx_sender_email (sender_email),
   INDEX idx_message_time (message_time)
 );
+
+CREATE TABLE IF NOT EXISTS phishing_ai_training (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  message_id VARCHAR(255),
+  subject TEXT,
+  sender_email VARCHAR(255),
+  sender_domain VARCHAR(255),
+  body LONGTEXT,
+  urls JSON,
+  ai_request JSON,
+  ai_response JSON,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  processed TINYINT DEFAULT 0,
+  INDEX idx_message_id (message_id)
+);
 "
 ```
 
@@ -197,6 +212,7 @@ mysql -u root -p mcp_logs < schema.sql
 - **Adds a new column** `login_success` to the `user_logins` table
 - **Optionally adds** a `drive_events` table for storing raw Drive audit events when debugging
 - **Optionally adds** a `phishing_emails` table so Gmail phishing detections (with AI metadata) can be stored and reviewed
+- **Optionally adds** a `phishing_ai_training` table capturing AI requests/responses for future model training
 - **Sets default value** to `TRUE` (meaning successful logins)
 - **Updates existing records** to mark them all as successful (since we don't have historical success/failure data)
 - **Future logins** will be properly marked as successful or failed based on the Google Workspace event data

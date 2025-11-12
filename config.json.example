@@ -96,7 +96,25 @@
     ]
   },
   "phishing_detection": {
-    "combined_confidence_threshold": 0.75
+    "combined_confidence_threshold": 0.75,
+    "train_ai": false,
+    "keyword_weights": {
+      "urgent": 2,
+      "immediately": 2,
+      "password": 3,
+      "verify": 3,
+      "account": 2,
+      "invoice": 3,
+      "bank": 3,
+      "click": 2,
+      "secure": 2,
+      "transfer": 3
+    },
+    "auth_weights": {
+      "spf_fail": 2,
+      "dkim_fail": 2,
+      "dmarc_fail": 3
+    }
   }
 }
 

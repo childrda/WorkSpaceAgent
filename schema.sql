@@ -83,3 +83,18 @@ CREATE TABLE IF NOT EXISTS phishing_emails (
   INDEX idx_sender_email (sender_email),
   INDEX idx_message_time (message_time)
 );
+
+CREATE TABLE IF NOT EXISTS phishing_ai_training (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  message_id VARCHAR(255),
+  subject TEXT,
+  sender_email VARCHAR(255),
+  sender_domain VARCHAR(255),
+  body LONGTEXT,
+  urls JSON,
+  ai_request JSON,
+  ai_response JSON,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  processed TINYINT DEFAULT 0,
+  INDEX idx_message_id (message_id)
+);

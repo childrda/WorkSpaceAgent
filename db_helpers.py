@@ -311,6 +311,23 @@ def create_archive_dump(archive_path, retention_days):
                     val_str = f"({row[0]}, {escape_sql(row[1])}, {escape_sql(row[2])}, {escape_sql(row[3])}, {escape_sql(row[4])}, {escape_sql(row[5])}, {escape_sql(row[6])}, {escape_sql(row[7])}, {escape_sql(row[8])}, {escape_sql(row[9])}, {escape_sql(row[10])}, {escape_sql(row[11])}, {escape_sql(row[12])}, {escape_sql(row[13])}, {escape_sql(row[14])}, {escape_sql(row[15])}, {escape_sql(row[16])})"
                     values.append(val_str)
                 f.write(",\n".join(values) + ";\n\n")
+
+            # Archive phishing_ai_training
+            cursor.execute(
+                """SELECT * FROM phishing_ai_training 
+                   WHERE created_at < %s 
+                   ORDER BY created_at""",
+                (cutoff_date,)
+            )
+            rows = cursor.fetchall()
+            if rows:
+                f.write("-- phishing_ai_training archive\n")
+                f.write("INSERT INTO phishing_ai_training (id, message_id, subject, sender_email, sender_domain, body, urls, ai_request, ai_response, created_at, processed) VALUES\n")
+                values = []
+                for row in rows:
+                    val_str = f"({row[0]}, {escape_sql(row[1])}, {escape_sql(row[2])}, {escape_sql(row[3])}, {escape_sql(row[4])}, {escape_sql(row[5])}, {escape_sql(row[6])}, {escape_sql(row[7])}, {escape_sql(row[8])}, {escape_sql(row[9])}, {row[10]})"
+                    values.append(val_str)
+                f.write(",\n".join(values) + ";\n\n")
             
             f.write("SET FOREIGN_KEY_CHECKS=1;\n")
         
@@ -355,6 +372,39 @@ def insert_drive_event(actor_email, owner_domain, owner_display_name, doc_id,
         return True
     except Error as e:
         print(f"[!] drive_event insert error: {e}")
+        return False
+
+
+def insert_ai_training_sample(message_id, subject, sender_email, sender_domain,
+                              body, urls, ai_request, ai_response):
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO phishing_ai_training
+                   (message_id, subject, sender_email, sender_domain, body, urls, ai_request, ai_response)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                message_id,
+                subject,
+                sender_email,
+                sender_domain,
+                body,
+                json.dumps(urls or []),
+                json.dumps(ai_request or {}),
+                json.dumps(ai_response or {})
+            )
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Error as e:
+        print(f"[!] ai_training insert error: {e}")
         return False
 
 
@@ -425,7 +475,8 @@ def prune_old_logs(retention_days, archive_first=True, archive_path=None):
         'security_alerts': 0,
         'phishing_alerts': 0,
         'drive_events': 0,
-        'phishing_emails': 0
+        'phishing_emails': 0,
+        'phishing_ai_training': 0
     }
     
     # Create archive if requested
@@ -476,7 +527,14 @@ def prune_old_logs(retention_days, archive_first=True, archive_path=None):
             (cutoff_date,)
         )
         deleted_counts['phishing_emails'] = cursor.rowcount
-        
+
+        # Prune phishing_ai_training (uses created_at)
+        cursor.execute(
+            "DELETE FROM phishing_ai_training WHERE created_at < %s",
+            (cutoff_date,)
+        )
+        deleted_counts['phishing_ai_training'] = cursor.rowcount
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -488,6 +546,7 @@ def prune_old_logs(retention_days, archive_first=True, archive_path=None):
         print(f"    - phishing_alerts: {deleted_counts['phishing_alerts']}")
         print(f"    - drive_events: {deleted_counts['drive_events']}")
         print(f"    - phishing_emails: {deleted_counts['phishing_emails']}")
+        print(f"    - phishing_ai_training: {deleted_counts['phishing_ai_training']}")
         
         return deleted_counts
         

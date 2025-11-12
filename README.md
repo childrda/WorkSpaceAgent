@@ -409,6 +409,7 @@ The agent uses three main tables:
 - **phishing_alerts**: Stores phishing and impersonation alerts from Drive
 - **drive_events** *(optional)*: Raw Google Drive events when `log_all_drive_events` is enabled
 - **phishing_emails** *(optional)*: Suspicious Gmail messages detected by the phishing scanner (including AI label and confidence metadata)
+- **phishing_ai_training** *(optional)*: Raw AI requests/responses saved when `phishing_detection.train_ai` is true
 
 ### Gmail Phishing Detection (Optional)
 
@@ -423,6 +424,6 @@ The agent uses three main tables:
    - `urgency_keywords`, `financial_keywords`: phrases that indicate urgency or financial lures (gift cards, payroll, wire transfer)
    - (Optional) `ignore_senders`: addresses that should never trigger alerts (e.g., your alert mailbox)
 5. **Optional AI integration:** set the environment variables `AI_CLASSIFIER_URL`, `AI_CLASSIFIER_TOKEN`, and (optional) `AI_MIN_CONFIDENCE` on the server. If these are not set, the agent automatically falls back to rule-based detection only.
-6. **Tuning thresholds:** you can adjust the combined confidence trigger via the `phishing_detection.combined_confidence_threshold` value in `config.json` (defaults to `0.75`).
+6. **Tuning thresholds:** you can adjust the combined confidence trigger via the `phishing_detection.combined_confidence_threshold` value in `config.json` (defaults to `0.75`). Set `phishing_detection.train_ai` to `true` if you want to record the exact AI payload/response for each message so you can retrain the model later (data is stored in the `phishing_ai_training` table). You can also override keyword weights (`phishing_detection.keyword_weights`) and SPF/DKIM/DMARC weights (`phishing_detection.auth_weights`) to fine-tune the rule-based scoring.
 
 The agent stores suspicious Gmail messages in the `phishing_emails` table and issues email alerts (if enabled) summarising the reasons (external share links, spoofed display names, SPF/DKIM/DMARC failures, etc.).
