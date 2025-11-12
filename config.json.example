@@ -94,6 +94,9 @@
       "dropbox.com",
       "box.com"
     ]
+  },
+  "phishing_detection": {
+    "combined_confidence_threshold": 0.75
   }
 }
 

@@ -126,6 +126,7 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
     urgency_keywords = [u.lower() for u in gmail_cfg.get('urgency_keywords', [])]
     financial_keywords = [f.lower() for f in gmail_cfg.get('financial_keywords', [])]
     ai_min_confidence = float(os.getenv('AI_MIN_CONFIDENCE', 0.7))
+    combined_threshold = float(config.get('phishing_detection', {}).get('combined_confidence_threshold', 0.75))
 
     for message_id in message_ids:
         msg = gmail_service.users().messages().get(userId=mailbox, id=message_id, format='full').execute()
@@ -238,6 +239,18 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
 
         ai_result = classify_with_ai(subject, sender_email, body_text or snippet, list(share_links))
         label = ai_result.get('label', 'unknown')
+        LABEL_MAP = {
+            "phishing": "phishing",
+            "possible_phishing": "potential_phishing",
+            "potential phishing": "potential_phishing",
+            "potential_phishing": "potential_phishing",
+            "unsafe": "phishing",
+            "uncertain": "unknown",
+            "unclassified": "unknown",
+            "safe": "safe",
+            "marketing": "marketing"
+        }
+        label = LABEL_MAP.get(label.strip().lower(), "unknown")
         ai_confidence = float(ai_result.get('confidence', 0.0) or 0.0)
         ai_model = ai_result.get('model', 'unknown')
         ai_latency = ai_result.get('latency_ms', 0)
@@ -250,24 +263,24 @@ def process_gmail_messages(gmail_service, config, since_dt: datetime) -> Tuple[i
                 reason_ai = f"AI classified as {label} ({ai_confidence:.2f})"
         elif label in ("safe", "marketing"):
             reason_ai = f"AI classified as {label} ({ai_confidence:.2f})"
+            ai_confidence = 0.0
         else:
             reason_ai = f"AI returned {label} ({ai_confidence:.2f})"
+            ai_confidence = 0.0
 
         if reason_ai:
             suspicious_reasons.add(reason_ai)
 
         final_confidence = round((ai_confidence * 0.7) + ((rule_score / 10) * 0.3), 2)
 
-        should_flag = False
-        if label in ("safe", "marketing") and not ai_flagged:
+        if label in ("safe", "marketing"):
+            ai_confidence = 0.0
+            final_confidence = round(((rule_score / 10) * 0.3), 2)
             should_flag = False
+        elif label in ("phishing", "potential_phishing"):
+            should_flag = ai_confidence >= ai_min_confidence or final_confidence > combined_threshold
         else:
-            if ai_flagged:
-                should_flag = True
-            elif final_confidence > 0.75:
-                should_flag = True
-            elif spf_fail or dkim_fail or dmarc_fail:
-                should_flag = True
+            should_flag = final_confidence > combined_threshold or spf_fail or dkim_fail or dmarc_fail
 
         if not should_flag:
             if config.get('log_level', '').upper() == 'DEBUG':

@@ -423,6 +423,6 @@ The agent uses three main tables:
    - `urgency_keywords`, `financial_keywords`: phrases that indicate urgency or financial lures (gift cards, payroll, wire transfer)
    - (Optional) `ignore_senders`: addresses that should never trigger alerts (e.g., your alert mailbox)
 5. **Optional AI integration:** set the environment variables `AI_CLASSIFIER_URL`, `AI_CLASSIFIER_TOKEN`, and (optional) `AI_MIN_CONFIDENCE` on the server. If these are not set, the agent automatically falls back to rule-based detection only.
-6. **Restart the agent** so the new configuration and scope take effect.
+6. **Tuning thresholds:** you can adjust the combined confidence trigger via the `phishing_detection.combined_confidence_threshold` value in `config.json` (defaults to `0.75`).
 
 The agent stores suspicious Gmail messages in the `phishing_emails` table and issues email alerts (if enabled) summarising the reasons (external share links, spoofed display names, SPF/DKIM/DMARC failures, etc.).
